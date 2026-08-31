@@ -32,8 +32,8 @@ Panel {
   readonly property string themeAccentHex: Model.colorToHex(Color.accent)
   readonly property string themeSecondaryHex: Model.colorToHex(Color.warning)
 
-  readonly property string activePrimaryHex: root.primaryColorHex
-  readonly property string activeSecondaryHex: root.secondaryColorHex
+  readonly property string activePrimaryHex: root.themeSync ? root.themeAccentHex : root.primaryColorHex
+  readonly property string activeSecondaryHex: root.themeSync ? root.themeSecondaryHex : root.secondaryColorHex
   readonly property string activeRgbMode: (root.rawData && root.rawData.activeRgbMode) ? root.rawData.activeRgbMode : "wave"
   readonly property bool activeModeSupportsColor: Model.modeSupportsCustomColors(root.activeRgbMode)
 
@@ -57,8 +57,7 @@ Panel {
     saveSetting("themeSync", nextSync)
     if (nextSync) {
       root.statusMessage = Model.t("toastThemeSyncOn", root.lang) + root.themeAccentHex
-      setCustomColor(true, root.themeAccentHex)
-      setCustomColor(false, root.themeSecondaryHex)
+      applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
     } else {
       root.statusMessage = Model.t("toastThemeSyncOff", root.lang)
       applyRgbColors(root.activeRgbMode, root.primaryColorHex, root.secondaryColorHex)
@@ -66,6 +65,11 @@ Panel {
   }
 
   function setCustomColor(isPrimary, hex) {
+    if (root.themeSync) {
+      root.themeSync = false
+      saveSetting("themeSync", false)
+    }
+
     var targetMode = root.activeRgbMode
     if (!Model.modeSupportsCustomColors(targetMode)) {
       targetMode = "static"
@@ -131,9 +135,22 @@ Panel {
   Connections {
     target: Color
     function onAccentChanged() {
-      if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
-        root.setCustomColor(true, Model.colorToHex(Color.accent))
-        root.setCustomColor(false, Model.colorToHex(Color.warning))
+      if (root.themeSync) {
+        root.applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
+      } else {
+        var saved = (root.themeColorsMap && root.themeColorsMap[root.activeThemeSlug]) ? root.themeColorsMap[root.activeThemeSlug] : null
+        if (saved && saved.primary && saved.secondary) {
+          root.primaryColorHex = saved.primary
+          root.secondaryColorHex = saved.secondary
+          root.applyRgbColors(root.activeRgbMode, saved.primary, saved.secondary)
+        } else {
+          root.applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
+        }
+      }
+    }
+    function onBackgroundChanged() {
+      if (root.themeSync) {
+        root.applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
       }
     }
   }
