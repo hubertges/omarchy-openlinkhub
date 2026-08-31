@@ -598,7 +598,7 @@ Panel {
                 bordered: true
                 selected: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
                 active: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
-                dimmed: root.themeSync && !modelData.supportsColors
+                opacity: (root.themeSync && !modelData.supportsColors) ? 0.45 : 1.0
                 onClicked: root.applyRgbMode(modelData.id)
               }
             }
