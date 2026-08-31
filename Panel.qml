@@ -106,6 +106,16 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
+  // --- Theme accent change listener ---
+  Connections {
+    target: Color
+    function onAccentChanged() {
+      if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
+        root.applyRgbColors(root.activeRgbMode, Model.colorToHex(Color.accent), Model.colorToHex(Color.warning))
+      }
+    }
+  }
+
   // --- Apply Fan Speed Profile to All Controllable Devices & Channels ---
   Process {
     id: setFanProc
@@ -121,7 +131,7 @@ Panel {
   }
 
   function applyFanProfile(profileName) {
-    if (setFanProc.running) return
+    if (setFanProc.running) setFanProc.running = false
     setFanProc.profileName = profileName
     if (root.rawData) root.rawData.activeFanProfile = profileName
 
@@ -178,46 +188,24 @@ Panel {
   }
 
   function applyRgbMode(rgbMode) {
-    if (setRgbProc.running) return
+    if (setRgbProc.running) setRgbProc.running = false
     setRgbProc.rgbModeName = rgbMode
     if (root.rawData) root.rawData.activeRgbMode = rgbMode
 
-    var clusterPayload = JSON.stringify({ deviceId: "cluster", channelId: 0, profile: rgbMode })
-    var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + clusterPayload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-
-    var devices = (root.rawData && root.rawData.rgbControllableDevices && root.rawData.rgbControllableDevices.length > 0)
-      ? root.rawData.rgbControllableDevices
-      : ["62605BBB76606751B331EACF1C495170", "i2c11"]
-    for (var i = 0; i < devices.length; i++) {
-      var payload = JSON.stringify({ deviceId: devices[i], channelId: -1, profile: rgbMode })
-      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    }
-
-    // Also push active colors if mode supports them
     if (Model.modeSupportsCustomColors(rgbMode)) {
-      var p1 = Model.hexToRgb(root.activePrimaryHex)
-      var p2 = Model.hexToRgb(root.activeSecondaryHex)
-      var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
-      for (var k = 0; k < targets.length; k++) {
-        var cPayload = JSON.stringify({
-          deviceId: targets[k],
-          profile: rgbMode,
-          startColor: p1,
-          endColor: p2,
-          middleColor: { red: 0, green: 0, blue: 0, temperature: 0 },
-          speed: 2,
-          alternateColors: false,
-          rgbDirection: 0
-        })
-        script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + cPayload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
+      applyRgbColors(rgbMode, root.activePrimaryHex, root.activeSecondaryHex)
+    } else {
+      var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
+      var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      for (var i = 1; i < targets.length; i++) {
+        script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
       }
+      setRgbProc.command = ["bash", "-c", script]
+      setRgbProc.running = true
     }
-
-    setRgbProc.command = ["bash", "-c", script]
-    setRgbProc.running = true
   }
 
-  // --- Apply Custom Colors via PUT /api/color/change ---
+  // --- Apply Custom Colors via PUT /api/color/change and POST /api/color ---
   Process {
     id: setColorsProc
     onExited: function(code) {
@@ -226,12 +214,15 @@ Panel {
   }
 
   function applyRgbColors(mode, primaryHex, secondaryHex) {
+    if (setColorsProc.running) setColorsProc.running = false
     if (!Model.modeSupportsCustomColors(mode)) return
+
     var p1 = Model.hexToRgb(primaryHex)
     var p2 = Model.hexToRgb(secondaryHex)
-    var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
+    var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = ""
 
+    // 1. Update color configuration for cluster and all devices
     for (var i = 0; i < targets.length; i++) {
       var payload = JSON.stringify({
         deviceId: targets[i],
@@ -245,8 +236,14 @@ Panel {
       })
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
-    // Re-apply active mode so changes take effect immediately
+
+    // 2. Trigger active mode reload for cluster (channel 0)
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+
+    // 3. Trigger active mode reload for each physical device (channel -1)
+    for (var j = 1; j < targets.length; j++) {
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    }
 
     setColorsProc.command = ["bash", "-c", script]
     setColorsProc.running = true
@@ -259,9 +256,10 @@ Panel {
   }
 
   function applyBrightness(level) {
+    if (setBrightnessProc.running) setBrightnessProc.running = false
     var b = Math.max(0, Math.min(100, Math.round(level)))
     if (root.rawData) root.rawData.brightness = b
-    var devices = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
+    var devices = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = ""
     for (var i = 0; i < devices.length; i++) {
       var payload = JSON.stringify({ deviceId: devices[i], brightness: b })
