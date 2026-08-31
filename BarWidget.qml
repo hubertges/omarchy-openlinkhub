@@ -474,7 +474,7 @@ Panel {
               maximum: 100
               step: 5
               integer: true
-              value: root.data.brightness
+              value: root.data && root.data.brightness !== undefined ? root.data.brightness : 100
               onReleased: function(v) { root.applyBrightness(v) }
             }
           }
@@ -498,22 +498,22 @@ Panel {
               title: "CHŁODZENIE CIECZĄ (AIO)"
               icon: "󰌢"
               rows: [
-                { label: "Temperatura cieczy", value: root.data.liquidTemp !== null ? (root.data.liquidTemp + " °C") : "--" },
-                { label: "Obroty pompy", value: root.data.pumpRpm !== null ? (root.data.pumpRpm + " RPM") : "--" },
-                { label: "Urządzenie", value: root.data.liquidName || "iCUE LINK H150i" }
+                { label: "Temperatura cieczy", value: root.data && root.data.liquidTemp !== null && root.data.liquidTemp !== undefined ? (root.data.liquidTemp + " °C") : "--" },
+                { label: "Obroty pompy", value: root.data && root.data.pumpRpm !== null && root.data.pumpRpm !== undefined ? (root.data.pumpRpm + " RPM") : "--" },
+                { label: "Urządzenie", value: (root.data && root.data.liquidName) || "iCUE LINK H150i" }
               ]
             }
 
             // Zasilacz (RM850i PSU)
             InfoCard {
               width: parent.width
-              title: "ZASILACZ (PSU · " + (root.data.psuName || "RM850i") + ")"
+              title: "ZASILACZ (PSU · " + ((root.data && root.data.psuName) || "RM850i") + ")"
               icon: "󱐋"
               rows: [
-                { label: "Łączna moc (Power Out)", value: root.data.psuWatts !== null ? (root.data.psuWatts + " W") : "--" },
-                { label: "Linia 12V", value: root.data.psuRails["12V Rail"] ? (root.data.psuRails["12V Rail"].watts + "W (" + root.data.psuRails["12V Rail"].volts + "V / " + root.data.psuRails["12V Rail"].amps + "A)") : "--" },
-                { label: "Linia 5V / 3.3V", value: (root.data.psuRails["5V Rail"] ? (root.data.psuRails["5V Rail"].watts + "W") : "--") + " · " + (root.data.psuRails["3V Rail"] ? (root.data.psuRails["3V Rail"].watts + "W") : "--") },
-                { label: "Temperatura VRM / PSU", value: (root.data.psuVrmTemp ? (root.data.psuVrmTemp + "°C") : "--") + " · " + (root.data.psuTemp ? (root.data.psuTemp + "°C") : "--") }
+                { label: "Łączna moc (Power Out)", value: root.data && root.data.psuWatts !== null && root.data.psuWatts !== undefined ? (root.data.psuWatts + " W") : "--" },
+                { label: "Linia 12V", value: root.data && root.data.psuRails && root.data.psuRails["12V Rail"] ? (root.data.psuRails["12V Rail"].watts + "W (" + root.data.psuRails["12V Rail"].volts + "V / " + root.data.psuRails["12V Rail"].amps + "A)") : "--" },
+                { label: "Linia 5V / 3.3V", value: ((root.data && root.data.psuRails && root.data.psuRails["5V Rail"]) ? (root.data.psuRails["5V Rail"].watts + "W") : "--") + " · " + ((root.data && root.data.psuRails && root.data.psuRails["3V Rail"]) ? (root.data.psuRails["3V Rail"].watts + "W") : "--") },
+                { label: "Temperatura VRM / PSU", value: ((root.data && root.data.psuVrmTemp) ? (root.data.psuVrmTemp + "°C") : "--") + " · " + ((root.data && root.data.psuTemp) ? (root.data.psuTemp + "°C") : "--") }
               ]
             }
 
@@ -523,16 +523,16 @@ Panel {
               title: "TEMPERATURY PODZESPOŁÓW"
               icon: "󰍛"
               rows: [
-                { label: "Procesor (CPU)", value: root.data.cpuTemp !== null ? (root.data.cpuTemp + " °C") : "--" },
-                { label: "Karta graficzna (GPU)", value: root.data.gpuTemp !== null ? (root.data.gpuTemp + " °C") : "--" },
-                { label: "Pamięć RAM (Dominator)", value: root.data.ramTemp !== null ? (root.data.ramTemp + " °C") : "--" }
+                { label: "Procesor (CPU)", value: root.data && root.data.cpuTemp !== null && root.data.cpuTemp !== undefined ? (root.data.cpuTemp + " °C") : "--" },
+                { label: "Karta graficzna (GPU)", value: root.data && root.data.gpuTemp !== null && root.data.gpuTemp !== undefined ? (root.data.gpuTemp + " °C") : "--" },
+                { label: "Pamięć RAM (Dominator)", value: root.data && root.data.ramTemp !== null && root.data.ramTemp !== undefined ? (root.data.ramTemp + " °C") : "--" }
               ]
             }
 
             // Wentylatory
             InfoCard {
               width: parent.width
-              title: "WENTYLATORY (" + root.data.fans.length + " SZT.)"
+              title: "WENTYLATORY (" + (root.data && root.data.fans ? root.data.fans.length : 0) + " SZT.)"
               icon: "󰠝"
               rows: root.getFanRows()
             }
@@ -549,12 +549,14 @@ Panel {
 
   function getFanRows() {
     var list = []
-    for (var i = 0; i < root.data.fans.length; i++) {
-      var f = root.data.fans[i]
-      list.push({
-        label: f.name + " (" + f.devName + ")",
-        value: f.rpm + " RPM" + (f.profile ? (" · " + f.profile) : "")
-      })
+    if (root.data && Array.isArray(root.data.fans)) {
+      for (var i = 0; i < root.data.fans.length; i++) {
+        var f = root.data.fans[i]
+        list.push({
+          label: f.name + " (" + f.devName + ")",
+          value: f.rpm + " RPM" + (f.profile ? (" · " + f.profile) : "")
+        })
+      }
     }
     if (list.length === 0) list.push({ label: "Wentylatory", value: "--" })
     return list
