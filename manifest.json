@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "hubi.openlinkhub",
+  "name": "OpenLinkHub",
+  "version": "1.0.0",
+  "author": "Hubert Ges",
+  "license": "MIT",
+  "description": "Monitor liquid coolant temperature, PSU power wattage, and hardware sensors, with quick selection of predefined fan profiles and RGB lighting modes via OpenLinkHub in Omarchy.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OpenLinkHub",
+    "description": "Monitor liquid coolant temp, PSU wattage, and control fan/RGB profiles",
+    "category": "Hardware",
+    "aliases": [
+      "openlinkhub",
+      "corsair",
+      "icue",
+      "liquid",
+      "coolant",
+      "psu",
+      "fans",
+      "rgb"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

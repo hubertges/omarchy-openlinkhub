@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""
+openlinkhub-ctl: Command-line control utility for OpenLinkHub & Omarchy widget.
+Provides quick queries and controls for liquid cooling, PSU power, fans, and RGB lighting.
+"""
+
+import sys
+import os
+import json
+import argparse
+import urllib.request
+import urllib.error
+
+DEFAULT_API_URL = os.environ.get("OPENLINKHUB_API_URL", "http://localhost:27003")
+CONFIG_PATH = os.path.expanduser("~/.config/omarchy/shell.json")
+
+def api_get(endpoint, base_url=DEFAULT_API_URL):
+    url = f"{base_url.rstrip('/')}{endpoint}"
+    req = urllib.request.Request(url, headers={"User-Agent": "openlinkhub-ctl"})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Error connecting to OpenLinkHub at {url}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def api_post(endpoint, payload, base_url=DEFAULT_API_URL):
+    url = f"{base_url.rstrip('/')}{endpoint}"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "openlinkhub-ctl"})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Error sending request to {url}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def parse_hardware(data):
+    res = {
+        "liquid_temp": None,
+        "liquid_name": "",
+        "pump_rpm": None,
+        "psu_watts": None,
+        "psu_name": "",
+        "psu_temp": None,
+        "psu_vrm_temp": None,
+        "psu_rails": {},
+        "cpu_temp": None,
+        "gpu_temp": None,
+        "ram_temp": None,
+        "max_fan_rpm": None,
+        "fans": [],
+        "probes": [],
+        "active_fan_profile": "Quiet",
+        "active_rgb_mode": "wave",
+        "is_cluster": False,
+        "rgb_off": False,
+        "brightness": 100,
+        "fan_devices": [],
+        "rgb_devices": []
+    }
+    
+    devices = data.get("devices", {})
+    max_fan = 0
+    
+    for dev_id, dev in devices.items():
+        dev_name = dev.get("Product", dev_id)
+        get_dev = dev.get("GetDevice")
+        if not get_dev:
+            continue
+            
+        dev_profile = get_dev.get("DeviceProfile", {})
+        if dev_profile:
+            if dev_profile.get("MultiProfile"):
+                res["active_fan_profile"] = dev_profile["MultiProfile"]
+            if dev_profile.get("MultiRGB"):
+                res["active_rgb_mode"] = dev_profile["MultiRGB"]
+            if dev_profile.get("RGBCluster") is not None:
+                res["is_cluster"] = dev_profile.get("RGBCluster")
+            if dev_profile.get("RgbOff") is not None:
+                res["rgb_off"] = dev_profile.get("RgbOff")
+            if dev_profile.get("BrightnessSlider") is not None:
+                res["brightness"] = dev_profile.get("BrightnessSlider")
+                
+        if get_dev.get("CpuTemp") and (res["cpu_temp"] is None or get_dev["CpuTemp"] > 0):
+            res["cpu_temp"] = get_dev["CpuTemp"]
+        if get_dev.get("GpuTemp") and (res["gpu_temp"] is None or get_dev["GpuTemp"] > 0):
+            res["gpu_temp"] = get_dev["GpuTemp"]
+            
+        channels = get_dev.get("devices", {})
+        has_fans = False
+        has_rgb = bool(get_dev.get("RGBModes"))
+        
+        for ch_id, ch in channels.items():
+            ch_name = ch.get("name", f"Channel {ch_id}")
+            desc = ch.get("description", "")
+            rpm = ch.get("rpm")
+            temp = ch.get("temperature")
+            watts = ch.get("watts")
+            profile = ch.get("profile")
+            
+            if desc == "AIO" or any(k in ch_name for k in ["LCD", "H150", "Cooler", "AIO"]):
+                if temp and temp > 0:
+                    res["liquid_temp"] = temp
+                    res["liquid_name"] = ch_name
+                if rpm and rpm > 0:
+                    res["pump_rpm"] = rpm
+                    
+            if get_dev.get("IsPSU") or any(k in dev_name for k in ["RM", "PSU"]) or desc == "Output Power" or ch_name == "Power Out":
+                if watts is not None and (res["psu_watts"] is None or watts > (res["psu_watts"] or 0)):
+                    res["psu_watts"] = watts
+                    res["psu_name"] = dev_name
+                if "VRM" in ch_name and temp:
+                    res["psu_vrm_temp"] = temp
+                elif "PSU" in ch_name and temp:
+                    res["psu_temp"] = temp
+                if "Rail" in ch_name:
+                    res["psu_rails"][ch_name] = {"watts": watts, "volts": ch.get("volts"), "amps": ch.get("amps")}
+                    
+            if "DOMINATOR" in ch_name or "Memory" in dev_name:
+                if temp and (res["ram_temp"] is None or temp > res["ram_temp"]):
+                    res["ram_temp"] = temp
+                    
+            if desc == "Fan" or "Fan" in ch_name:
+                has_fans = True
+                if rpm is not None:
+                    if rpm > max_fan:
+                        max_fan = rpm
+                    res["fans"].append({
+                        "dev_id": dev_id,
+                        "dev_name": dev_name,
+                        "channel_id": ch_id,
+                        "name": ch_name,
+                        "rpm": rpm,
+                        "profile": profile
+                    })
+                    
+            if desc == "Probe" or "Probe" in ch_name:
+                if temp and temp > 0:
+                    res["probes"].append({"dev_id": dev_id, "name": ch_name, "temp": temp})
+                    
+        if has_fans:
+            res["fan_devices"].append(dev_id)
+        if has_rgb:
+            res["rgb_devices"].append(dev_id)
+            
+    if max_fan > 0:
+        res["max_fan_rpm"] = max_fan
+        
+    return res
+
+def cmd_status(args):
+    data = api_get("/api/devices", args.api_url)
+    hw = parse_hardware(data)
+    
+    if args.json:
+        print(json.dumps(hw, indent=2))
+        return
+
+    print("==================================================")
+    print("           OPENLINKHUB HARDWARE STATUS            ")
+    print("==================================================")
+    
+    if hw["liquid_temp"] is not None:
+        print(f" Liquid Coolant:  {hw['liquid_temp']} °C  ({hw['liquid_name']})")
+    if hw["pump_rpm"] is not None:
+        print(f" AIO Pump Speed:  {hw['pump_rpm']} RPM")
+    if hw["psu_watts"] is not None:
+        print(f" PSU Total Power: {hw['psu_watts']} W  ({hw['psu_name']})")
+        for rail, info in hw["psu_rails"].items():
+            print(f"   • {rail:<10}  {info['watts']} W  ({info['volts']} V / {info['amps']} A)")
+        if hw["psu_vrm_temp"]:
+            print(f"   • VRM Temp:    {hw['psu_vrm_temp']} °C")
+        if hw["psu_temp"]:
+            print(f"   • PSU Temp:    {hw['psu_temp']} °C")
+            
+    print("--------------------------------------------------")
+    print(f" CPU Temp:        {hw['cpu_temp']} °C")
+    print(f" GPU Temp:        {hw['gpu_temp']} °C")
+    if hw["ram_temp"]:
+        print(f" RAM Temp:        {hw['ram_temp']} °C")
+    for p in hw["probes"]:
+        print(f" Probe ({p['name']}): {p['temp']} °C")
+        
+    print("--------------------------------------------------")
+    print(f" Fan Profile:     {hw['active_fan_profile']}")
+    print(f" RGB Mode:        {hw['active_rgb_mode']} (Cluster: {hw['is_cluster']}, Brightness: {hw['brightness']}%)")
+    print(f" Total Fans:      {len(hw['fans'])} connected (Max: {hw['max_fan_rpm']} RPM)")
+    for f in hw["fans"]:
+        prof_str = f" [{f['profile']}]" if f.get("profile") else ""
+        print(f"   • {f['dev_name']} - {f['name']:<18} {f['rpm']} RPM{prof_str}")
+    print("==================================================")
+
+def cmd_get(args):
+    data = api_get("/api/devices", args.api_url)
+    hw = parse_hardware(data)
+    
+    m = args.metric.lower().replace("-", "_")
+    if m in ["liquid", "liquid_temp", "coolant", "water"]:
+        print(f"{hw['liquid_temp']}")
+    elif m in ["pump", "pump_rpm"]:
+        print(f"{hw['pump_rpm']}")
+    elif m in ["psu", "psu_power", "psu_watts", "watts", "power"]:
+        print(f"{hw['psu_watts']}")
+    elif m in ["cpu", "cpu_temp"]:
+        print(f"{hw['cpu_temp']}")
+    elif m in ["gpu", "gpu_temp"]:
+        print(f"{hw['gpu_temp']}")
+    elif m in ["ram", "ram_temp", "memory"]:
+        print(f"{hw['ram_temp']}")
+    elif m in ["fan", "fan_rpm", "fans"]:
+        print(f"{hw['max_fan_rpm']}")
+    elif m in ["fan_profile", "profile"]:
+        print(f"{hw['active_fan_profile']}")
+    elif m in ["rgb", "rgb_mode", "lighting"]:
+        print(f"{hw['active_rgb_mode']}")
+    elif m in ["brightness"]:
+        print(f"{hw['brightness']}")
+    else:
+        print(f"Unknown metric: {args.metric}", file=sys.stderr)
+        sys.exit(1)
+
+def cmd_fan(args):
+    profile = args.profile.capitalize()
+    valid_profiles = ["Quiet", "Balanced", "Performance", "Normal", "Extreme"]
+    matched = None
+    for p in valid_profiles:
+        if p.lower() == profile.lower():
+            matched = p
+            break
+    if not matched:
+        matched = args.profile
+
+    data = api_get("/api/devices", args.api_url)
+    hw = parse_hardware(data)
+    targets = hw["fan_devices"] if hw["fan_devices"] else ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
+    
+    success = False
+    for dev_id in targets:
+        res = api_post("/api/speed", {"deviceId": dev_id, "channelId": -1, "profile": matched}, args.api_url)
+        if res.get("status") == 1 or res.get("code") == 200:
+            success = True
+            
+    if success:
+        print(f"Successfully applied fan profile '{matched}' to {len(targets)} device(s).")
+    else:
+        print(f"Warning: could not confirm fan profile change for '{matched}'.", file=sys.stderr)
+
+def cmd_rgb(args):
+    mode = args.mode.lower()
+    data = api_get("/api/devices", args.api_url)
+    hw = parse_hardware(data)
+    
+    # Send to cluster first
+    res_cluster = api_post("/api/color", {"deviceId": "cluster", "channelId": 0, "profile": mode}, args.api_url)
+    
+    # Also send to individual RGB devices
+    targets = hw["rgb_devices"] if hw["rgb_devices"] else ["62605BBB76606751B331EACF1C495170", "i2c11"]
+    for dev_id in targets:
+        api_post("/api/color", {"deviceId": dev_id, "channelId": -1, "profile": mode}, args.api_url)
+        
+    print(f"Successfully set RGB lighting mode to '{mode}'.")
+
+def cmd_brightness(args):
+    try:
+        val = int(args.level)
+        if not (0 <= val <= 100):
+            raise ValueError()
+    except ValueError:
+        print("Error: Brightness level must be an integer between 0 and 100.", file=sys.stderr)
+        sys.exit(1)
+        
+    data = api_get("/api/devices", args.api_url)
+    hw = parse_hardware(data)
+    
+    api_post("/api/brightness/gradual", {"deviceId": "cluster", "brightness": val}, args.api_url)
+    for dev_id in hw["rgb_devices"]:
+        api_post("/api/brightness/gradual", {"deviceId": dev_id, "brightness": val}, args.api_url)
+        
+    print(f"Successfully set RGB brightness to {val}%.")
+
+def cmd_bar_metric(args):
+    metric = args.metric.lower().replace("-", "_")
+    valid = ["liquid_temp", "psu_power", "cpu_temp", "gpu_temp", "ram_temp", "pump_rpm", "fan_rpm", "psu_vrm_temp"]
+    if metric not in valid:
+        print(f"Error: Invalid metric '{args.metric}'. Valid choices: {', '.join(valid)}", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.exists(CONFIG_PATH):
+        print(f"Error: {CONFIG_PATH} not found.", file=sys.stderr)
+        sys.exit(1)
+        
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+            
+        found = False
+        sections = ["right", "center", "left"]
+        for s in sections:
+            for item in cfg.get("bar", {}).get("layout", {}).get(s, []):
+                if item.get("id") in ["hubi.openlinkhub", "omarchy.openlinkhub", "openlinkhub"]:
+                    item["displayMetric"] = metric
+                    found = True
+                    break
+                    
+        if not found:
+            print("Widget not currently placed in bar layout. Appending to right section.")
+            if "bar" not in cfg: cfg["bar"] = {}
+            if "layout" not in cfg["bar"]: cfg["bar"]["layout"] = {"left":[], "center":[], "right":[]}
+            if "right" not in cfg["bar"]["layout"]: cfg["bar"]["layout"]["right"] = []
+            cfg["bar"]["layout"]["right"].append({"id": "hubi.openlinkhub", "displayMetric": metric})
+            
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(cfg, f, indent=2)
+            
+        print(f"Successfully set bar display metric to '{metric}' in {CONFIG_PATH}.")
+    except Exception as e:
+        print(f"Error updating config: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(description="OpenLinkHub CLI Controller for Omarchy")
+    parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"OpenLinkHub API URL (default: {DEFAULT_API_URL})")
+    
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    
+    # Status
+    p_status = subparsers.add_parser("status", help="Show overview of hardware status")
+    p_status.add_argument("--json", action="store_true", help="Output raw JSON")
+    
+    # Get
+    p_get = subparsers.add_parser("get", help="Get a single metric value")
+    p_get.add_argument("metric", help="Metric name (liquid, psu, cpu, gpu, ram, pump, fan, profile, rgb, brightness)")
+    
+    # Fan
+    p_fan = subparsers.add_parser("fan", help="Set fan speed profile")
+    p_fan.add_argument("profile", help="Profile name (Quiet, Balanced, Performance, Extreme)")
+    
+    # RGB
+    p_rgb = subparsers.add_parser("rgb", help="Set RGB lighting mode")
+    p_rgb.add_argument("mode", help="Lighting mode (wave, rainbow, spiralrainbow, static, storm, watercolor, rotator, spinner, off)")
+    
+    # Brightness
+    p_bright = subparsers.add_parser("brightness", help="Set RGB brightness (0-100)")
+    p_bright.add_argument("level", type=int, help="Brightness level from 0 to 100")
+    
+    # Metric (for bar)
+    p_metric = subparsers.add_parser("metric", help="Set bar display metric in Omarchy shell")
+    p_metric.add_argument("metric", help="Metric ID (liquid_temp, psu_power, cpu_temp, gpu_temp, ram_temp, pump_rpm, fan_rpm)")
+    
+    args = parser.parse_args()
+    if not args.command:
+        cmd_status(argparse.Namespace(api_url=DEFAULT_API_URL, json=False))
+        return
+        
+    if args.command == "status":
+        cmd_status(args)
+    elif args.command == "get":
+        cmd_get(args)
+    elif args.command == "fan":
+        cmd_fan(args)
+    elif args.command == "rgb":
+        cmd_rgb(args)
+    elif args.command == "brightness":
+        cmd_brightness(args)
+    elif args.command == "metric":
+        cmd_bar_metric(args)
+
+if __name__ == "__main__":
+    main()
