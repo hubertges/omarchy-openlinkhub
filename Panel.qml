@@ -38,7 +38,7 @@ Panel {
   readonly property string activeRgbMode: (root.rawData && root.rawData.activeRgbMode) ? root.rawData.activeRgbMode : "wave"
   readonly property bool activeModeSupportsColor: Model.modeSupportsCustomColors(root.activeRgbMode)
 
-  readonly property string barText: root.connected ? (root.badge.icon + " " + root.badge.text) : "󰖔 !"
+  readonly property string barText: root.connected ? (root.badge.icon + " " + root.badge.text) : "󰔏 !"
   readonly property string tooltipText: Model.formatTooltip(root.rawData, root.displayMetric, root.lang)
 
   function t(key) {
@@ -886,7 +886,7 @@ Panel {
 
               Text {
                 text: sensorRow.modelData.icon
-                color: sensorRow.isCurrent ? Color.accent : (sensorRow.modelData.icon === "󰖔" ? "#38bdf8" : root.fg)
+                color: sensorRow.isCurrent ? Color.accent : (sensorRow.modelData.icon === "󰔏" ? "#38bdf8" : root.fg)
                 font.family: root.ff
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true

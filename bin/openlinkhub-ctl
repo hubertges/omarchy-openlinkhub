@@ -197,7 +197,7 @@ def cmd_status(args):
     print("========================================")
     
     if hw["liquid_temp"] is not None:
-        print(f"󰖔 Coolant Temp:  {hw['liquid_temp']} °C ({hw['liquid_name']})")
+        print(f"󰔏 Coolant Temp:  {hw['liquid_temp']} °C ({hw['liquid_name']})")
     if hw["pump_rpm"] is not None:
         print(f"󰈐 Pump Speed:    {hw['pump_rpm']} RPM")
         

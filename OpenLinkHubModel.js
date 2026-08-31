@@ -632,7 +632,7 @@ function getDeviceGroups(data, lang) {
     linkSensors.push({
       key: "liquid_temp",
       label: t("coolantTemp", lang),
-      icon: "󰖔",
+      icon: "󰔏",
       value: data.liquidTemp.toFixed(1) + " °C",
       raw: data.liquidTemp,
       unit: "°C"
@@ -667,7 +667,7 @@ function getDeviceGroups(data, lang) {
     groups.push({
       id: "icue_link",
       title: (data.liquidName || "iCUE LINK H150i LCD") + " (" + t("liquidCooler", lang) + ")",
-      icon: "󰖔",
+      icon: "󰔏",
       sensors: linkSensors
     });
   }
@@ -842,7 +842,7 @@ function getDeviceGroups(data, lang) {
 function resolveBarBadge(data, sensorKey, lang) {
   if (!data || !data.connected) {
     return {
-      icon: "󰖔",
+      icon: "󰔏",
       text: t("offline", lang),
       fullText: "OpenLinkHub: " + t("offline", lang),
       label: t("offline", lang),
@@ -855,8 +855,8 @@ function resolveBarBadge(data, sensorKey, lang) {
   // Standard Presets
   if (key === "liquid_temp") {
     var lt = data.liquidTemp !== null && data.liquidTemp !== undefined ? data.liquidTemp : data.cpuTemp;
-    if (lt === null || lt === undefined) return { icon: "󰖔", text: "--°", fullText: t("coolantTemp", lang) + ": --", label: t("coolantTemp", lang), raw: null };
-    return { icon: "󰖔", text: lt.toFixed(1) + "°", fullText: lt.toFixed(1) + " °C (" + t("coolantTemp", lang) + ")", label: t("coolantTemp", lang), raw: lt };
+    if (lt === null || lt === undefined) return { icon: "󰔏", text: "--°", fullText: t("coolantTemp", lang) + ": --", label: t("coolantTemp", lang), raw: null };
+    return { icon: "󰔏", text: lt.toFixed(1) + "°", fullText: lt.toFixed(1) + " °C (" + t("coolantTemp", lang) + ")", label: t("coolantTemp", lang), raw: lt };
   }
 
   if (key === "psu_power") {
@@ -945,7 +945,7 @@ function resolveBarBadge(data, sensorKey, lang) {
     }
   }
 
-  return { icon: "󰖔", text: "--", fullText: "--", label: "", raw: null };
+  return { icon: "󰔏", text: "--", fullText: "--", label: "", raw: null };
 }
 
 // Get ordered list of sensor keys for right-click cycling
@@ -976,7 +976,7 @@ function formatTooltip(data, currentKey, lang) {
   lines.push(t("tooltipTitle", lang) + " (" + t("connected", lang) + ")");
   lines.push("────────────────────────────────────────");
   if (data.liquidTemp !== null && data.liquidTemp !== undefined) {
-    lines.push("󰖔 " + t("coolantTemp", lang) + ": " + data.liquidTemp.toFixed(1) + " °C (" + (data.liquidName || "AIO") + ")");
+    lines.push("󰔏 " + t("coolantTemp", lang) + ": " + data.liquidTemp.toFixed(1) + " °C (" + (data.liquidName || "AIO") + ")");
   }
   if (data.pumpRpm !== null && data.pumpRpm !== undefined) {
     lines.push("󰈐 " + t("pumpSpeed", lang) + ": " + data.pumpRpm + " RPM");
