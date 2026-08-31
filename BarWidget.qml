@@ -10,6 +10,7 @@ Panel {
   id: root
   moduleName: "hubi.openlinkhub"
   ipcTarget: "hubi.openlinkhub"
+  manageIpc: false
 
   property string apiUrl: root.setting("apiUrl", "http://localhost:27003")
   property string displayMetric: root.setting("displayMetric", "liquid_temp")
@@ -173,19 +174,12 @@ Panel {
   }
 
   // --- Bar Button on Right Section ---
-  WidgetButton {
+  BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: root.badgeText
-    labelVisible: true
-    hasVisualContent: true
-    horizontalMargin: 8.5
-    verticalPadding: 6
-    fontSize: Style.font.bodySmall
-    active: root.badge.isUrgent
-    useActiveColor: true
-    activeColor: Color.urgent
+    slotSize: Style.bar.iconSlot * 2.2
     tooltipText: Model.formatTooltip(root.data, root.displayMetric)
     onPressed: function(b) {
       if (b === Qt.RightButton) {
