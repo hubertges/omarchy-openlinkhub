@@ -217,18 +217,15 @@ Panel {
     if (Model.modeSupportsCustomColors(rgbMode)) {
       applyRgbColors(rgbMode, root.activePrimaryHex, root.activeSecondaryHex)
     } else {
-      var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
       var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-      for (var i = 1; i < targets.length; i++) {
-        script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-      }
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"i2c11\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
       setRgbProc.command = ["bash", "-c", script]
       setRgbProc.running = true
     }
   }
 
-  // --- Apply Custom Colors via PUT /api/color/change and Instant Bounce Reload ---
+  // --- Apply Custom Colors via PUT /api/color/change and Reload ---
   Process {
     id: setColorsProc
     onExited: function(code) {
@@ -264,14 +261,13 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Fast bounce transition on cluster to force hardware animation engine to immediately render new colors
-    var bounceMode = (targetMode === "circle") ? "wave" : "circle"
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-
-    // 3. Immediately re-apply active mode
+    // 2. Re-apply active mode to cluster
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    // 4. Global broadcast
+    // 3. Re-apply active mode to memory
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"i2c11\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+
+    // 4. Global broadcast to reload active profile colors immediately
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
