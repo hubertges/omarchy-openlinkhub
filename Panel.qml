@@ -70,14 +70,20 @@ Panel {
   }
 
   function setCustomColor(isPrimary, hex) {
+    var mode = root.activeRgbMode
+    if (!Model.modeSupportsCustomColors(mode)) {
+      mode = "static"
+      if (root.rawData) root.rawData.activeRgbMode = "static"
+    }
+
     if (isPrimary) {
       root.primaryColorHex = hex
       saveSetting("primaryColor", hex)
-      applyRgbColors(root.activeRgbMode, hex, root.secondaryColorHex)
+      applyRgbColors(mode, hex, root.secondaryColorHex)
     } else {
       root.secondaryColorHex = hex
       saveSetting("secondaryColor", hex)
-      applyRgbColors(root.activeRgbMode, root.primaryColorHex, hex)
+      applyRgbColors(mode, root.primaryColorHex, hex)
     }
     root.statusMessage = Model.t("toastColors", root.lang) + (isPrimary ? hex : root.primaryColorHex) + " / " + (isPrimary ? root.secondaryColorHex : hex)
   }
@@ -226,7 +232,11 @@ Panel {
 
   function applyRgbColors(mode, primaryHex, secondaryHex) {
     if (setColorsProc.running) setColorsProc.running = false
-    if (!Model.modeSupportsCustomColors(mode)) return
+    var targetMode = mode
+    if (!Model.modeSupportsCustomColors(targetMode)) {
+      targetMode = "static"
+      if (root.rawData) root.rawData.activeRgbMode = "static"
+    }
 
     var p1 = Model.hexToRgb(primaryHex)
     var p2 = Model.hexToRgb(secondaryHex)
@@ -237,7 +247,7 @@ Panel {
     for (var i = 0; i < targets.length; i++) {
       var payload = JSON.stringify({
         deviceId: targets[i],
-        profile: mode,
+        profile: targetMode,
         startColor: p1,
         endColor: p2,
         middleColor: { red: 0, green: 0, blue: 0, temperature: 0 },
@@ -249,10 +259,10 @@ Panel {
     }
 
     // 2. Re-apply active RGB profile directly to cluster
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
     // 3. Global broadcast to force animation engine reload
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
     setColorsProc.running = true
@@ -642,10 +652,8 @@ Panel {
 
                 Text {
                   id: cHint
-                  text: !root.activeModeSupportsColor
-                    ? root.t("rainbowFixedNotice")
-                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : root.t("manualColorsNotice"))
-                  color: !root.activeModeSupportsColor ? Qt.darker(root.fg, 1.5) : Color.accent
+                  text: root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : root.t("manualColorsNotice")
+                  color: Color.accent
                   font.family: root.ff
                   font.pixelSize: Style.font.caption
                   font.bold: true
@@ -658,7 +666,7 @@ Panel {
               Column {
                 width: parent.width
                 spacing: Style.space(6)
-                opacity: root.activeModeSupportsColor ? 1.0 : 0.45
+                opacity: 1.0
 
                 Text {
                   text: root.t("primaryColor") + ": " + root.activePrimaryHex.toUpperCase()
@@ -702,7 +710,7 @@ Panel {
                         id: pMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        enabled: root.activeModeSupportsColor
+                        enabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(true, pSwatch.modelData.hex)
                       }
@@ -753,7 +761,7 @@ Panel {
                         id: sMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        enabled: root.activeModeSupportsColor
+                        enabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(false, sSwatch.modelData.hex)
                       }
