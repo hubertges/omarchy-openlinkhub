@@ -16,8 +16,8 @@ Panel {
   property string displayMetric: root.setting("displayMetric", "liquid_temp")
   property string lang: root.setting("lang", "en")
   property bool themeSync: root.setting("themeSync", false)
-  property string primaryColorHex: root.setting("primaryColor", "#06b6d4")
-  property string secondaryColorHex: root.setting("secondaryColor", "#3b82f6")
+  property string primaryColorHex: root.setting("primaryColor", "#0e7490")
+  property string secondaryColorHex: root.setting("secondaryColor", "#312e81")
   property int pollInterval: root.setting("pollInterval", 2000)
 
   property bool connected: false
@@ -248,16 +248,21 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Global immediate broadcast to force animation engine reload
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
+    // 2. Hardware profile bounce to force OpenLinkHub animation engine to reload newly written colors
+    var bounceMode = (mode === "circle") ? "wave" : "circle"
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    for (var b = 1; b < targets.length; b++) {
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[b] + "\",\"channelId\":-1,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    }
 
-    // 3. Cluster reload
+    // 3. Immediately switch back to target mode on cluster and devices
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-
-    // 4. Per-device broadcast
     for (var j = 1; j < targets.length; j++) {
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
     }
+
+    // 4. Global broadcast
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
     setColorsProc.running = true
@@ -339,8 +344,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(470))
-    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(690))
+    contentWidth: panel.fittedContentWidth(Style.space(480))
+    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(700))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -674,14 +679,18 @@ Panel {
                   font.bold: true
                 }
 
-                Row {
+                Grid {
+                  width: parent.width
+                  columns: 7
                   spacing: Style.space(6)
+                  readonly property real swatchWidth: (width - (spacing * 6)) / 7
+
                   Repeater {
                     model: Model.COLOR_PALETTES
                     Rectangle {
                       required property var modelData
-                      width: Style.space(24)
-                      height: Style.space(24)
+                      width: parent.swatchWidth
+                      height: Style.space(22)
                       radius: Style.space(4)
                       color: modelData.hex
                       border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
@@ -706,14 +715,18 @@ Panel {
                   anchors.topMargin: Style.space(4)
                 }
 
-                Row {
+                Grid {
+                  width: parent.width
+                  columns: 7
                   spacing: Style.space(6)
+                  readonly property real swatchWidth: (width - (spacing * 6)) / 7
+
                   Repeater {
                     model: Model.COLOR_PALETTES
                     Rectangle {
                       required property var modelData
-                      width: Style.space(24)
-                      height: Style.space(24)
+                      width: parent.swatchWidth
+                      height: Style.space(22)
                       radius: Style.space(4)
                       color: modelData.hex
                       border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)

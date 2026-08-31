@@ -22,8 +22,8 @@ var I18N = {
     rgbColors: "RGB COLORS",
     primaryColor: "Primary Color",
     secondaryColor: "Secondary Color",
-    themeSyncedNotice: "Synced with Omarchy theme (Dark-mode adapted)",
-    manualColorsNotice: "Manual color selection",
+    themeSyncedNotice: "Synced with Omarchy theme (Dark-mode ambient tones)",
+    manualColorsNotice: "Manual color selection (Instant hardware apply)",
     rainbowFixedNotice: "Mode uses fixed rainbow colors (color customization disabled)",
     brightness: "RGB BRIGHTNESS",
     devicesOverview: "HARDWARE DEVICES & SENSORS",
@@ -48,7 +48,7 @@ var I18N = {
     toastDefault: "󰄬 Set as default bar metric: ",
     toastFan: "󰄬 Applied fan profile across all devices: ",
     toastRgb: "󰄬 Applied RGB mode: ",
-    toastColors: "󰄬 Applied RGB colors: ",
+    toastColors: "󰄬 Applied RGB colors immediately: ",
     toastThemeSyncOn: "󰄬 Enabled RGB Theme Sync with ",
     toastThemeSyncOff: "󰄬 Disabled RGB Theme Sync (manual color control enabled)",
     toastErrorFan: "Error applying fan profile",
@@ -74,8 +74,8 @@ var I18N = {
     rgbColors: "KOLORY RGB",
     primaryColor: "Kolor główny",
     secondaryColor: "Kolor pomocniczy",
-    themeSyncedNotice: "Dopasowano automatycznie do motywu (Tryb ciemny)",
-    manualColorsNotice: "Ręczny wybór barw",
+    themeSyncedNotice: "Dopasowano do ciemnego motywu (Przyciemnione, stonowane barwy)",
+    manualColorsNotice: "Ręczny wybór barw (Natychmiastowe zastosowanie)",
     rainbowFixedNotice: "Tryb tęczy o stałych barwach (wybór kolorów zablokowany)",
     brightness: "JASNOŚĆ RGB",
     devicesOverview: "URZĄDZENIA I CZUJNIKI SPRZĘTU",
@@ -100,7 +100,7 @@ var I18N = {
     toastDefault: "󰄬 Ustawiono jako domyślną statystykę: ",
     toastFan: "󰄬 Zastosowano profil dla wszystkich urządzeń: ",
     toastRgb: "󰄬 Zastosowano tryb RGB: ",
-    toastColors: "󰄬 Zastosowano kolory RGB: ",
+    toastColors: "󰄬 Natychmiast zastosowano kolory RGB: ",
     toastThemeSyncOn: "󰄬 Włączono synchronizację RGB z akcentem motywu ",
     toastThemeSyncOff: "󰄬 Wyłączono synchronizację RGB (ręczny wybór barw)",
     toastErrorFan: "Błąd zmiany profilu wentylatorów",
@@ -139,19 +139,22 @@ var DEFAULT_RGB_MODES = [
   { id: "off",                 name: "Off",            labelPl: "Wyłączone (Off)",         icon: "󰏌" }
 ];
 
+// Rich palette with dark/muted variants and vibrant tones
 var COLOR_PALETTES = [
-  { name: "Cyan",    hex: "#06b6d4" },
-  { name: "Ice Blue",hex: "#38bdf8" },
-  { name: "Blue",    hex: "#3b82f6" },
-  { name: "Indigo",  hex: "#6366f1" },
-  { name: "Purple",  hex: "#a855f7" },
-  { name: "Pink",    hex: "#ec4899" },
-  { name: "Red",     hex: "#ef4444" },
-  { name: "Orange",  hex: "#f97316" },
-  { name: "Amber",   hex: "#f59e0b" },
-  { name: "Green",   hex: "#10b981" },
-  { name: "White",   hex: "#ffffff" },
-  { name: "Black",   hex: "#000000" }
+  { name: "Deep Cyan",    hex: "#0e7490" },
+  { name: "Neon Cyan",    hex: "#06b6d4" },
+  { name: "Deep Blue",    hex: "#1e3a8a" },
+  { name: "Sky Blue",     hex: "#38bdf8" },
+  { name: "Deep Violet",  hex: "#4c1d95" },
+  { name: "Purple",       hex: "#a855f7" },
+  { name: "Dark Red",     hex: "#7f1d1d" },
+  { name: "Crimson",      hex: "#ef4444" },
+  { name: "Dark Amber",   hex: "#78350f" },
+  { name: "Orange",       hex: "#f97316" },
+  { name: "Forest Green", hex: "#064e3b" },
+  { name: "Emerald",      hex: "#10b981" },
+  { name: "Dim Slate",    hex: "#334155" },
+  { name: "Black (Off)",  hex: "#000000" }
 ];
 
 function modeSupportsCustomColors(modeId) {
@@ -162,7 +165,7 @@ function modeSupportsCustomColors(modeId) {
 }
 
 function hexToRgb(hexStr) {
-  if (!hexStr) return { red: 0, green: 255, blue: 255, temperature: 0 };
+  if (!hexStr) return { red: 14, green: 116, blue: 144, temperature: 0 };
   var clean = String(hexStr).replace("#", "").trim();
   if (clean.length === 3) {
     clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
@@ -172,13 +175,13 @@ function hexToRgb(hexStr) {
     var g = parseInt(clean.substring(2, 4), 16);
     var b = parseInt(clean.substring(4, 6), 16);
     return {
-      red: isNaN(r) ? 0 : r,
-      green: isNaN(g) ? 255 : g,
-      blue: isNaN(b) ? 255 : b,
+      red: isNaN(r) ? 14 : r,
+      green: isNaN(g) ? 116 : g,
+      blue: isNaN(b) ? 144 : b,
       temperature: 0
     };
   }
-  return { red: 0, green: 255, blue: 255, temperature: 0 };
+  return { red: 14, green: 116, blue: 144, temperature: 0 };
 }
 
 function rgbToHex(r, g, b) {
@@ -189,7 +192,7 @@ function rgbToHex(r, g, b) {
 }
 
 function colorToHex(col) {
-  if (!col) return "#06b6d4";
+  if (!col) return "#0e7490";
   var s = String(col);
   if (s.indexOf("#") === 0 && s.length >= 7) return s.substring(0, 7);
   try {
@@ -198,8 +201,17 @@ function colorToHex(col) {
     var b = Math.round(col.b * 255);
     return rgbToHex(r, g, b);
   } catch (e) {
-    return "#06b6d4";
+    return "#0e7490";
   }
+}
+
+function darkenHex(hexStr, factor) {
+  var rgb = hexToRgb(hexStr);
+  var f = Math.max(0.1, Math.min(1.0, factor || 0.45));
+  var r = Math.round(rgb.red * f);
+  var g = Math.round(rgb.green * f);
+  var b = Math.round(rgb.blue * f);
+  return rgbToHex(r, g, b);
 }
 
 function isDarkColor(col) {
@@ -216,24 +228,30 @@ function isWhiteOrNearWhite(hexStr) {
   var min = Math.min(rgb.red, rgb.green, rgb.blue);
   var lum = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
   var sat = max === 0 ? 0 : (max - min) / max;
-  return (lum > 0.65 && sat < 0.25);
+  return (lum > 0.60 && sat < 0.30);
 }
 
-// Adapt theme colors for RGB hardware: In dark mode, if colors are plain white/grey, adapt to ice cyan & indigo
+// Adapt theme colors for RGB hardware: In dark mode, tone down brightness & convert plain white/grey to deep dark cyan & deep indigo
 function resolveAdaptedThemeColors(accentColor, warningColor, bgColor, fgColor) {
   var isDark = isDarkColor(bgColor);
-  var rawAccentHex = colorToHex(accentColor || "#06b6d4");
-  var rawSecondaryHex = colorToHex(warningColor || "#3b82f6");
+  var rawAccentHex = colorToHex(accentColor || "#0e7490");
+  var rawSecondaryHex = colorToHex(warningColor || "#312e81");
 
   var primaryHex = rawAccentHex;
   var secondaryHex = rawSecondaryHex;
 
   if (isDark) {
     if (isWhiteOrNearWhite(rawAccentHex)) {
-      primaryHex = "#38bdf8"; // Ice Cyan accent for dark theme
+      primaryHex = "#0e7490"; // Deep Dark Cyan / Night Teal (muted, non-blinding)
+    } else {
+      // Darken rich color to comfortable night ambient level
+      primaryHex = darkenHex(rawAccentHex, 0.55);
     }
+    
     if (isWhiteOrNearWhite(rawSecondaryHex) || secondaryHex.toLowerCase() === primaryHex.toLowerCase()) {
-      secondaryHex = "#818cf8"; // Indigo secondary for dark theme
+      secondaryHex = "#312e81"; // Deep Indigo secondary
+    } else {
+      secondaryHex = darkenHex(rawSecondaryHex, 0.45);
     }
   }
 
@@ -269,8 +287,8 @@ function emptyData() {
     rgbModes: DEFAULT_RGB_MODES.slice(),
     activeFanProfile: "Quiet",
     activeRgbMode: "wave",
-    startColorHex: "#06b6d4",
-    endColorHex: "#3b82f6",
+    startColorHex: "#0e7490",
+    endColorHex: "#312e81",
     isCluster: false,
     rgbOff: false,
     brightness: 100
