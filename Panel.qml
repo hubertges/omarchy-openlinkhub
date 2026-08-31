@@ -223,7 +223,7 @@ Panel {
     }
   }
 
-  // --- Apply Custom Colors with Immediate Hardware Re-render ---
+  // --- Apply Custom Colors and Re-apply Active RGB Profile ---
   Process {
     id: setColorsProc
     onExited: function(code) {
@@ -255,20 +255,15 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Hardware profile bounce to force OpenLinkHub animation engine to reload newly written colors
-    var bounceMode = (mode === "circle") ? "wave" : "circle"
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    for (var b = 1; b < targets.length; b++) {
-      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[b] + "\",\"channelId\":-1,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    }
-
-    // 3. Immediately switch back to target mode on cluster and devices
+    // 2. Re-apply active RGB profile directly to cluster
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+
+    // 3. Re-apply active RGB profile directly to each controller
     for (var j = 1; j < targets.length; j++) {
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
     }
 
-    // 4. Global broadcast
+    // 4. Global broadcast to force animation engine reload
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
@@ -278,17 +273,16 @@ Panel {
   // --- Apply Brightness ---
   Process {
     id: setBrightnessProc
-    onExited: function(code) { root.refresh() }
   }
 
   function applyBrightness(level) {
     if (setBrightnessProc.running) setBrightnessProc.running = false
     var b = Math.max(0, Math.min(100, Math.round(level)))
     if (root.rawData) root.rawData.brightness = b
-    var devices = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
+    var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = ""
-    for (var i = 0; i < devices.length; i++) {
-      var payload = JSON.stringify({ deviceId: devices[i], brightness: b })
+    for (var i = 0; i < targets.length; i++) {
+      var payload = JSON.stringify({ deviceId: targets[i], brightness: b })
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/brightness/gradual >/dev/null 2>&1; "
     }
     setBrightnessProc.command = ["bash", "-c", script]
@@ -819,6 +813,7 @@ Panel {
             step: 5
             integer: true
             value: (root.rawData && root.rawData.brightness !== undefined) ? root.rawData.brightness : 100
+            onMoved: function(v) { root.applyBrightness(v) }
             onReleased: function(v) { root.applyBrightness(v) }
           }
 
