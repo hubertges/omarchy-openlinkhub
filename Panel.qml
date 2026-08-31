@@ -18,6 +18,8 @@ Panel {
   property bool themeSync: root.setting("themeSync", false)
   property string primaryColorHex: root.setting("primaryColor", "#06b6d4")
   property string secondaryColorHex: root.setting("secondaryColor", "#3b82f6")
+  property var themeColorsMap: root.setting("themeColorsMap", ({}))
+  property string activeThemeSlug: "vantablack"
   property int pollInterval: root.setting("pollInterval", 2000)
 
   property bool connected: false
@@ -30,8 +32,8 @@ Panel {
   readonly property string themeAccentHex: Model.colorToHex(Color.accent)
   readonly property string themeSecondaryHex: Model.colorToHex(Color.warning)
 
-  readonly property string activePrimaryHex: root.themeSync ? root.themeAccentHex : root.primaryColorHex
-  readonly property string activeSecondaryHex: root.themeSync ? root.themeSecondaryHex : root.secondaryColorHex
+  readonly property string activePrimaryHex: root.primaryColorHex
+  readonly property string activeSecondaryHex: root.secondaryColorHex
   readonly property string activeRgbMode: (root.rawData && root.rawData.activeRgbMode) ? root.rawData.activeRgbMode : "wave"
   readonly property bool activeModeSupportsColor: Model.modeSupportsCustomColors(root.activeRgbMode)
 
@@ -55,7 +57,8 @@ Panel {
     saveSetting("themeSync", nextSync)
     if (nextSync) {
       root.statusMessage = Model.t("toastThemeSyncOn", root.lang) + root.themeAccentHex
-      applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
+      setCustomColor(true, root.themeAccentHex)
+      setCustomColor(false, root.themeSecondaryHex)
     } else {
       root.statusMessage = Model.t("toastThemeSyncOff", root.lang)
       applyRgbColors(root.activeRgbMode, root.primaryColorHex, root.secondaryColorHex)
@@ -69,21 +72,29 @@ Panel {
       if (root.rawData) root.rawData.activeRgbMode = "static"
     }
 
-    if (root.themeSync) {
-      root.themeSync = false
-      saveSetting("themeSync", false)
-    }
+    var newP1 = isPrimary ? hex : root.primaryColorHex
+    var newP2 = isPrimary ? root.secondaryColorHex : hex
 
     if (isPrimary) {
       root.primaryColorHex = hex
       saveSetting("primaryColor", hex)
-      applyRgbColors(targetMode, hex, root.secondaryColorHex)
     } else {
       root.secondaryColorHex = hex
       saveSetting("secondaryColor", hex)
-      applyRgbColors(targetMode, root.primaryColorHex, hex)
     }
-    root.statusMessage = Model.t("toastColors", root.lang) + (isPrimary ? hex : root.primaryColorHex) + " / " + (isPrimary ? root.secondaryColorHex : hex)
+
+    // Save into theme memory
+    var currentMap = Object.assign({}, root.themeColorsMap)
+    currentMap[root.activeThemeSlug] = { primary: newP1, secondary: newP2 }
+    root.themeColorsMap = currentMap
+    saveSetting("themeColorsMap", currentMap)
+
+    // Persist to state file
+    var jsonPayload = JSON.stringify(currentMap).replace(/'/g, "'\\''")
+    Quickshell.execDetached(["bash", "-c", "echo '" + jsonPayload + "' > ~/.local/state/omarchy/openlinkhub-theme-colors.json"])
+
+    applyRgbColors(targetMode, newP1, newP2)
+    root.statusMessage = Model.t("toastColors", root.lang) + root.activeThemeSlug + ": " + newP1 + " / " + newP2
   }
 
   function setDefaultMetric(sensorKey) {
@@ -116,12 +127,13 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Theme accent change listener ---
+  // --- Theme color change listener ---
   Connections {
     target: Color
     function onAccentChanged() {
       if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
-        root.applyRgbColors(root.activeRgbMode, Model.colorToHex(Color.accent), Model.colorToHex(Color.warning))
+        root.setCustomColor(true, Model.colorToHex(Color.accent))
+        root.setCustomColor(false, Model.colorToHex(Color.warning))
       }
     }
   }
@@ -216,7 +228,7 @@ Panel {
     }
   }
 
-  // --- Apply Custom Colors via PUT /api/color/change and POST /api/color ---
+  // --- Apply Custom Colors via PUT /api/color/change and Instant Bounce Reload ---
   Process {
     id: setColorsProc
     onExited: function(code) {
@@ -237,7 +249,7 @@ Panel {
     var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = ""
 
-    // 1. Update color configuration for cluster and all devices
+    // 1. Update color configuration for cluster and all devices via PUT /api/color/change
     for (var i = 0; i < targets.length; i++) {
       var payload = JSON.stringify({
         deviceId: targets[i],
@@ -252,13 +264,12 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Trigger active mode reload for cluster (channel 0)
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    // 2. Fast bounce transition on cluster to force hardware animation engine to immediately render new colors
+    var bounceMode = (targetMode === "circle") ? "wave" : "circle"
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    // 3. Trigger active mode reload for each physical device (channel -1)
-    for (var j = 1; j < targets.length; j++) {
-      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    }
+    // 3. Immediately re-apply active mode
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
     // 4. Global broadcast
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
@@ -301,7 +312,7 @@ Panel {
   // --- Polling Devices & Temperatures & Cluster RGB in Parallel ---
   Process {
     id: fetchProc
-    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster"]
+    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster && echo '===THEME===' && cat ~/.local/state/omarchy/current/theme.name 2>/dev/null && echo '===SAVED===' && cat ~/.local/state/omarchy/openlinkhub-theme-colors.json 2>/dev/null || true"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -315,6 +326,23 @@ Panel {
         root.rawData = parsed
         root.connected = parsed.connected
         root.badge = Model.resolveBarBadge(parsed, root.displayMetric, root.lang)
+
+        // Handle per-theme color memory
+        if (parsed.currentThemeSlug && parsed.currentThemeSlug !== root.activeThemeSlug) {
+          root.activeThemeSlug = parsed.currentThemeSlug
+          var saved = (parsed.savedThemeColors && parsed.savedThemeColors[parsed.currentThemeSlug])
+            ? parsed.savedThemeColors[parsed.currentThemeSlug]
+            : (root.themeColorsMap[parsed.currentThemeSlug] || null)
+
+          if (saved && saved.primary && saved.secondary) {
+            root.primaryColorHex = saved.primary
+            root.secondaryColorHex = saved.secondary
+            root.applyRgbColors(root.activeRgbMode, saved.primary, saved.secondary)
+          } else if (root.themeSync) {
+            root.setCustomColor(true, root.themeAccentHex)
+            root.setCustomColor(false, root.themeSecondaryHex)
+          }
+        }
       }
     }
   }
@@ -653,7 +681,7 @@ Panel {
                   id: cHint
                   text: !root.activeModeSupportsColor
                     ? root.t("rainbowFixedNotice")
-                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : root.t("manualColorsNotice"))
+                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : (root.t("manualColorsNotice") + root.activeThemeSlug))
                   color: !root.activeModeSupportsColor ? Qt.darker(root.fg, 1.5) : Color.accent
                   font.family: root.ff
                   font.pixelSize: Style.font.caption

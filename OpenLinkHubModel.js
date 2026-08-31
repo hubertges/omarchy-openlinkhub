@@ -1,7 +1,7 @@
 .pragma library
 
 // OpenLinkHub Model & Helper Utilities for Omarchy shell plugin
-// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes & color sync.
+// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes & per-theme color memory.
 
 var I18N = {
   en: {
@@ -19,11 +19,11 @@ var I18N = {
     noProfiles: "No speed profiles found",
     rgbModes: "RGB LIGHTING MODES",
     activeMode: "MODE",
-    rgbColors: "RGB COLORS",
+    rgbColors: "RGB COLORS (PER-THEME MEMORY)",
     primaryColor: "Primary Color",
     secondaryColor: "Secondary Color",
-    themeSyncedNotice: "Synced with Omarchy theme accent",
-    manualColorsNotice: "Manual color selection",
+    themeSyncedNotice: "Theme Sync Active",
+    manualColorsNotice: "Colors remembered for current theme: ",
     rainbowFixedNotice: "Mode uses fixed rainbow colors",
     brightness: "RGB BRIGHTNESS",
     devicesOverview: "HARDWARE DEVICES & SENSORS",
@@ -48,7 +48,7 @@ var I18N = {
     toastDefault: "󰄬 Set as default bar metric: ",
     toastFan: "󰄬 Applied fan profile across all devices: ",
     toastRgb: "󰄬 Applied RGB mode: ",
-    toastColors: "󰄬 Applied RGB colors: ",
+    toastColors: "󰄬 Saved and applied colors for ",
     toastThemeSyncOn: "󰄬 Enabled RGB Theme Sync with ",
     toastThemeSyncOff: "󰄬 Disabled RGB Theme Sync (manual color control enabled)",
     toastErrorFan: "Error applying fan profile",
@@ -71,11 +71,11 @@ var I18N = {
     noProfiles: "Brak zdefiniowanych profili",
     rgbModes: "TRYBY OŚWIETLENIA (RGB)",
     activeMode: "TRYB",
-    rgbColors: "KOLORY RGB",
+    rgbColors: "KOLORY RGB (PAMIĘĆ DLA MOTYWU)",
     primaryColor: "Kolor główny",
     secondaryColor: "Kolor pomocniczy",
-    themeSyncedNotice: "Zsynchronizowano z motywem Omarchy",
-    manualColorsNotice: "Ręczny wybór barw",
+    themeSyncedNotice: "Synchronizacja z motywem włączona",
+    manualColorsNotice: "Kolory zapamiętane dla motywu: ",
     rainbowFixedNotice: "Tryb tęczy o stałych barwach",
     brightness: "JASNOŚĆ RGB",
     devicesOverview: "URZĄDZENIA I CZUJNIKI SPRZĘTU",
@@ -100,7 +100,7 @@ var I18N = {
     toastDefault: "󰄬 Ustawiono jako domyślną statystykę: ",
     toastFan: "󰄬 Zastosowano profil dla wszystkich urządzeń: ",
     toastRgb: "󰄬 Zastosowano tryb RGB: ",
-    toastColors: "󰄬 Zastosowano kolory RGB: ",
+    toastColors: "󰄬 Zapisano i zastosowano kolory dla motywu ",
     toastThemeSyncOn: "󰄬 Włączono synchronizację RGB z akcentem motywu ",
     toastThemeSyncOff: "󰄬 Wyłączono synchronizację RGB (ręczny wybór barw)",
     toastErrorFan: "Błąd zmiany profilu wentylatorów",
@@ -204,13 +204,6 @@ function colorToHex(col) {
   }
 }
 
-function isDarkColor(col) {
-  if (!col) return true;
-  var rgb = hexToRgb(colorToHex(col));
-  var lum = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
-  return lum < 0.5;
-}
-
 function emptyData() {
   return {
     connected: false,
@@ -236,6 +229,8 @@ function emptyData() {
     rgbModes: DEFAULT_RGB_MODES.slice(),
     activeFanProfile: "Quiet",
     activeRgbMode: "wave",
+    currentThemeSlug: "vantablack",
+    savedThemeColors: {},
     startColorHex: "#06b6d4",
     endColorHex: "#3b82f6",
     isCluster: false,
@@ -251,22 +246,34 @@ function parseOpenLinkHubData(rawText) {
   var devicesText = rawText;
   var tempsText = "";
   var rgbText = "";
+  var themeText = "";
+  var savedText = "";
 
   if (rawText.indexOf("===TEMPS===") !== -1) {
     var p1 = rawText.split("===TEMPS===");
     devicesText = p1[0].trim();
-    var rest = p1[1] || "";
-    if (rest.indexOf("===RGB===") !== -1) {
-      var p2 = rest.split("===RGB===");
+    var rest1 = p1[1] || "";
+    if (rest1.indexOf("===RGB===") !== -1) {
+      var p2 = rest1.split("===RGB===");
       tempsText = (p2[0] || "").trim();
-      rgbText = (p2[1] || "").trim();
+      var rest2 = p2[1] || "";
+      if (rest2.indexOf("===THEME===") !== -1) {
+        var p3 = rest2.split("===THEME===");
+        rgbText = (p3[0] || "").trim();
+        var rest3 = p3[1] || "";
+        if (rest3.indexOf("===SAVED===") !== -1) {
+          var p4 = rest3.split("===SAVED===");
+          themeText = (p4[0] || "").trim();
+          savedText = (p4[1] || "").trim();
+        } else {
+          themeText = rest3.trim();
+        }
+      } else {
+        rgbText = rest2.trim();
+      }
     } else {
-      tempsText = rest.trim();
+      tempsText = rest1.trim();
     }
-  } else if (rawText.indexOf("===RGB===") !== -1) {
-    var pr = rawText.split("===RGB===");
-    devicesText = pr[0].trim();
-    rgbText = (pr[1] || "").trim();
   }
 
   var json;
@@ -494,6 +501,16 @@ function parseOpenLinkHubData(rawText) {
       if (dynamicRgb.length > 0) {
         out.rgbModes = dynamicRgb;
       }
+    } catch (e) {}
+  }
+
+  if (themeText) {
+    out.currentThemeSlug = themeText.trim();
+  }
+
+  if (savedText) {
+    try {
+      out.savedThemeColors = JSON.parse(savedText) || {};
     } catch (e) {}
   }
 
