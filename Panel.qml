@@ -68,7 +68,7 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Apply Fan Speed Profile to All Controllable Devices ---
+  // --- Apply Fan Speed Profile to All Controllable Devices & Channels (Commander Pro + iCUE LINK) ---
   Process {
     id: setFanProc
     property string profileName: ""
@@ -86,14 +86,43 @@ Panel {
     if (setFanProc.running) return
     setFanProc.profileName = profileName
     if (root.rawData) root.rawData.activeFanProfile = profileName
-    var devices = (root.rawData && root.rawData.fanControllableDevices && root.rawData.fanControllableDevices.length > 0)
-      ? root.rawData.fanControllableDevices
-      : ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
+
     var script = ""
-    for (var i = 0; i < devices.length; i++) {
-      var payload = JSON.stringify({ deviceId: devices[i], channelId: -1, profile: profileName })
-      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/speed >/dev/null 2>&1; "
+    var devices = (root.rawData && root.rawData.devices) ? root.rawData.devices : []
+    
+    // Fallback devices if devices array not yet parsed
+    if (devices.length === 0) {
+      devices = [
+        { id: "62605BBB76606751B331EACF1C495170", hasFans: true, channels: [{ id: "1", desc: "Fan" }, { id: "13", desc: "AIO" }, { id: "14", desc: "Fan" }, { id: "15", desc: "Fan" }, { id: "17", desc: "Fan" }] },
+        { id: "1005010593341009", hasFans: true, channels: [{ id: "0", desc: "Fan" }, { id: "1", desc: "Fan" }, { id: "2", desc: "Fan" }, { id: "3", desc: "Fan" }, { id: "4", desc: "Fan" }, { id: "5", desc: "Fan" }] }
+      ]
     }
+
+    for (var i = 0; i < devices.length; i++) {
+      var d = devices[i]
+      if (d.name && (d.name.indexOf("RM") !== -1 || d.name.indexOf("PSU") !== -1 || d.name.indexOf("Memory") !== -1 || d.id === "cluster")) {
+        continue
+      }
+      if (d.hasFans || d.id === "1005010593341009" || d.id === "62605BBB76606751B331EACF1C495170") {
+        // 1. Global device broadcast
+        var pGlobal = JSON.stringify({ deviceId: d.id, channelId: -1, profile: profileName })
+        script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + pGlobal + "' " + root.apiUrl + "/api/speed >/dev/null 2>&1; "
+        
+        // 2. Per-channel broadcast (mandatory for Commander Pro and individual fan curves)
+        if (Array.isArray(d.channels)) {
+          for (var c = 0; c < d.channels.length; c++) {
+            var ch = d.channels[c]
+            var chDesc = String(ch.desc || "")
+            var chName = String(ch.name || "")
+            if (chDesc === "Fan" || chDesc === "AIO" || chName.indexOf("Fan") !== -1 || chName.indexOf("LINK") !== -1 || ch.rpm !== null) {
+              var pCh = JSON.stringify({ deviceId: d.id, channelId: parseInt(ch.id, 10), profile: profileName })
+              script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + pCh + "' " + root.apiUrl + "/api/speed >/dev/null 2>&1; "
+            }
+          }
+        }
+      }
+    }
+
     setFanProc.command = ["bash", "-c", script]
     setFanProc.running = true
   }
