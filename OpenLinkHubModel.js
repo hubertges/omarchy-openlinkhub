@@ -1,7 +1,7 @@
 .pragma library
 
 // OpenLinkHub Model & Helper Utilities for Omarchy shell plugin
-// Handles API parsing, multi-language i18n, device sensor consolidation, fan & RGB presets.
+// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles & RGB presets.
 
 var I18N = {
   en: {
@@ -12,8 +12,9 @@ var I18N = {
     setAsDefault: "Click to set as bar metric",
     webUi: "󰖟 Open Web UI",
     refresh: "󰑐 Refresh (R)",
-    fanProfiles: "FAN PROFILES",
+    fanProfiles: "FAN SPEED PROFILES",
     activeProfile: "ACTIVE",
+    noProfiles: "No speed profiles found",
     rgbModes: "RGB LIGHTING MODES",
     activeMode: "MODE",
     brightness: "RGB BRIGHTNESS",
@@ -37,7 +38,7 @@ var I18N = {
     fans: "Fans",
     probes: "Thermal Probes",
     toastDefault: "󰄬 Set as default bar metric: ",
-    toastFan: "󰄬 Applied fan profile: ",
+    toastFan: "󰄬 Applied fan profile across all devices: ",
     toastRgb: "󰄬 Applied RGB mode: ",
     toastErrorFan: "Error applying fan profile",
     toastErrorRgb: "Error applying RGB mode",
@@ -52,8 +53,9 @@ var I18N = {
     setAsDefault: "Kliknij, aby ustawić na pasku",
     webUi: "󰖟 Otwórz Web UI",
     refresh: "󰑐 Odśwież (R)",
-    fanProfiles: "PROFILE WENTYLATORÓW",
+    fanProfiles: "PROFILE PRĘDKOŚCI WENTYLATORÓW",
     activeProfile: "AKTYWNY",
+    noProfiles: "Brak zdefiniowanych profili",
     rgbModes: "TRYBY OŚWIETLENIA (RGB)",
     activeMode: "TRYB",
     brightness: "JASNOŚĆ RGB",
@@ -77,7 +79,7 @@ var I18N = {
     fans: "Wentylatory",
     probes: "Sondy temperatur",
     toastDefault: "󰄬 Ustawiono jako domyślną statystykę: ",
-    toastFan: "󰄬 Zastosowano profil wentylatorów: ",
+    toastFan: "󰄬 Zastosowano profil dla wszystkich urządzeń: ",
     toastRgb: "󰄬 Zastosowano tryb RGB: ",
     toastErrorFan: "Błąd zmiany profilu wentylatorów",
     toastErrorRgb: "Błąd zmiany trybu RGB",
@@ -92,11 +94,10 @@ function t(key, lang) {
   return dict[key] !== undefined ? dict[key] : (I18N.en[key] || key);
 }
 
-var FAN_PROFILES = [
-  { id: "Quiet",       name: "Quiet",       labelPl: "Cichy",          icon: "󰠝" },
-  { id: "Balanced",    name: "Balanced",    labelPl: "Zrównoważony",    icon: "󰠝" },
-  { id: "Performance", name: "Performance", labelPl: "Wydajny",        icon: "󰠝" },
-  { id: "Extreme",     name: "Extreme",     labelPl: "Maksymalny",     icon: "󰠝" }
+var DEFAULT_FAN_PROFILES = [
+  { id: "Quiet",       name: "Quiet",       labelPl: "Cichy (Quiet)",          icon: "󰠝" },
+  { id: "Normal",      name: "Normal",      labelPl: "Normalny (Normal)",      icon: "󰠝" },
+  { id: "Performance", name: "Performance", labelPl: "Wydajny (Performance)",  icon: "󰠝" }
 ];
 
 var RGB_MODES = [
@@ -137,6 +138,7 @@ function emptyData() {
     devices: [],
     fanControllableDevices: [],
     rgbControllableDevices: [],
+    fanProfiles: DEFAULT_FAN_PROFILES.slice(),
     activeFanProfile: "Quiet",
     activeRgbMode: "wave",
     isCluster: false,
@@ -149,9 +151,18 @@ function parseOpenLinkHubData(rawText) {
   var out = emptyData();
   if (!rawText) return out;
 
+  var devicesText = rawText;
+  var tempsText = "";
+
+  if (rawText.indexOf("===TEMPS===") !== -1) {
+    var parts = rawText.split("===TEMPS===");
+    devicesText = parts[0].trim();
+    tempsText = (parts[1] || "").trim();
+  }
+
   var json;
   try {
-    json = JSON.parse(rawText);
+    json = JSON.parse(devicesText);
   } catch (e) {
     return out;
   }
@@ -176,6 +187,14 @@ function parseOpenLinkHubData(rawText) {
     var devProfile = getDev.DeviceProfile || {};
     if (devProfile) {
       if (devProfile.MultiProfile) out.activeFanProfile = String(devProfile.MultiProfile);
+      else if (devProfile.SpeedProfiles) {
+        for (var spK in devProfile.SpeedProfiles) {
+          if (devProfile.SpeedProfiles[spK]) {
+            out.activeFanProfile = String(devProfile.SpeedProfiles[spK]);
+            break;
+          }
+        }
+      }
       if (devProfile.MultiRGB) out.activeRgbMode = String(devProfile.MultiRGB);
       if (devProfile.RGBCluster !== undefined) out.isCluster = Boolean(devProfile.RGBCluster);
       if (devProfile.RgbOff !== undefined) out.rgbOff = Boolean(devProfile.RgbOff);
@@ -244,8 +263,8 @@ function parseOpenLinkHubData(rawText) {
         }
       }
 
-      // Detect Fans
-      if (desc === "Fan" || chName.indexOf("Fan") !== -1) {
+      // Detect Fans (Exclude PSU)
+      if ((desc === "Fan" || chName.indexOf("Fan") !== -1) && !getDev.IsPSU && devName.indexOf("RM") === -1) {
         hasFans = true;
         if (rpm !== null) {
           totalFanRpm += rpm;
@@ -289,7 +308,9 @@ function parseOpenLinkHubData(rawText) {
       });
     }
 
-    if (hasFans) out.fanControllableDevices.push(devId);
+    if (hasFans && !getDev.IsPSU && devName.indexOf("RM") === -1) {
+      out.fanControllableDevices.push(devId);
+    }
     if (hasRgb) out.rgbControllableDevices.push(devId);
 
     out.devices.push({
@@ -304,6 +325,29 @@ function parseOpenLinkHubData(rawText) {
   if (fanCount > 0) {
     out.maxFanRpm = maxFan;
     out.avgFanRpm = Math.round(totalFanRpm / fanCount);
+  }
+
+  // Parse Dynamic Fan / Speed Profiles from /api/temperatures (including custom user profiles)
+  if (tempsText) {
+    try {
+      var tempsObj = JSON.parse(tempsText);
+      var profilesMap = tempsObj.data || {};
+      var dynamicProfiles = [];
+      for (var pName in profilesMap) {
+        if (!profilesMap.hasOwnProperty(pName)) continue;
+        var pData = profilesMap[pName];
+        if (pData && pData.Hidden) continue; // Skip hidden internal curves like emergency shutdown
+        dynamicProfiles.push({
+          id: pName,
+          name: pName,
+          labelPl: pName,
+          icon: "󰠝"
+        });
+      }
+      if (dynamicProfiles.length > 0) {
+        out.fanProfiles = dynamicProfiles;
+      }
+    } catch (e) {}
   }
 
   return out;

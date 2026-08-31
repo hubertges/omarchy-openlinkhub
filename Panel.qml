@@ -68,7 +68,7 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Apply Fan Profile ---
+  // --- Apply Fan Speed Profile to All Controllable Devices ---
   Process {
     id: setFanProc
     property string profileName: ""
@@ -161,10 +161,10 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  // --- Polling via curl ---
+  // --- Polling Devices & Temperatures / Fan Curves in Parallel ---
   Process {
     id: fetchProc
-    command: ["curl", "-fsSL", "--max-time", "2", root.apiUrl + "/api/devices/"]
+    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -216,10 +216,10 @@ Panel {
       onTextKey: function(t) {
         if (t === "r" || t === "R") root.refresh()
         if (t === "l" || t === "L") root.toggleLanguage()
-        if (t === "1") root.applyFanProfile("Quiet")
-        if (t === "2") root.applyFanProfile("Balanced")
-        if (t === "3") root.applyFanProfile("Performance")
-        if (t === "4") root.applyFanProfile("Extreme")
+        var num = parseInt(t, 10)
+        if (!isNaN(num) && num >= 1 && root.rawData && root.rawData.fanProfiles && num <= root.rawData.fanProfiles.length) {
+          root.applyFanProfile(root.rawData.fanProfiles[num - 1].id)
+        }
       }
 
       Flickable {
@@ -370,7 +370,7 @@ Panel {
             }
           }
 
-          // ---------- Section 2: Fan Profiles ----------
+          // ---------- Section 2: Fan Speed Profiles (Dynamic from OpenLinkHub) ----------
           PanelSeparator { foreground: root.fg }
 
           Item {
@@ -405,13 +405,15 @@ Panel {
             readonly property real cellWidth: (width - spacing) / 2
 
             Repeater {
-              model: Model.FAN_PROFILES
+              model: root.rawData && root.rawData.fanProfiles && root.rawData.fanProfiles.length > 0
+                ? root.rawData.fanProfiles
+                : Model.DEFAULT_FAN_PROFILES
 
               Button {
                 required property var modelData
                 required property int index
                 width: parent.cellWidth
-                text: modelData.icon + "  " + (root.lang === "pl" ? modelData.labelPl : modelData.name) + " (" + (index + 1) + ")"
+                text: modelData.icon + "  " + (root.lang === "pl" ? (modelData.labelPl || modelData.name) : modelData.name) + " (" + (index + 1) + ")"
                 fontFamily: root.ff
                 fontSize: Style.font.caption
                 bordered: true
