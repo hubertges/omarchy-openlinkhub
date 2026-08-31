@@ -209,11 +209,7 @@ Panel {
     setRgbProc.rgbModeName = rgbMode
     if (root.rawData) root.rawData.activeRgbMode = rgbMode
 
-    var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    for (var i = 1; i < targets.length; i++) {
-      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    }
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setRgbProc.command = ["bash", "-c", script]
@@ -223,11 +219,7 @@ Panel {
   // --- Apply Custom Colors and Re-apply Active RGB Profile ---
   Process {
     id: setColorsProc
-    property string targetMode: ""
     onExited: function(code) {
-      if (targetMode) {
-        root.applyRgbMode(targetMode)
-      }
       root.refresh()
     }
   }
@@ -236,7 +228,6 @@ Panel {
     if (setColorsProc.running) setColorsProc.running = false
     if (!Model.modeSupportsCustomColors(mode)) return
 
-    setColorsProc.targetMode = mode
     var p1 = Model.hexToRgb(primaryHex)
     var p2 = Model.hexToRgb(secondaryHex)
     var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
@@ -256,6 +247,12 @@ Panel {
       })
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
+
+    // 2. Re-apply active RGB profile directly to cluster
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+
+    // 3. Global broadcast to force animation engine reload
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
     setColorsProc.running = true
@@ -707,7 +704,7 @@ Panel {
                         hoverEnabled: true
                         enabled: root.activeModeSupportsColor
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.setCustomColor(true, parent.modelData.hex)
+                        onClicked: root.setCustomColor(true, pSwatch.modelData.hex)
                       }
                     }
                   }
@@ -745,8 +742,8 @@ Panel {
 
                       Text {
                         anchors.centerIn: parent
-                        text: (root.activeSecondaryHex.toLowerCase() === parent.modelData.hex.toLowerCase()) ? "󰄬" : ""
-                        color: Model.isDarkColor(parent.modelData.hex) ? "#ffffff" : "#000000"
+                        text: (root.activeSecondaryHex.toLowerCase() === sSwatch.modelData.hex.toLowerCase()) ? "󰄬" : ""
+                        color: Model.isDarkColor(sSwatch.modelData.hex) ? "#ffffff" : "#000000"
                         font.family: root.ff
                         font.pixelSize: Style.font.caption
                         font.bold: true
@@ -758,7 +755,7 @@ Panel {
                         hoverEnabled: true
                         enabled: root.activeModeSupportsColor
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.setCustomColor(false, parent.modelData.hex)
+                        onClicked: root.setCustomColor(false, sSwatch.modelData.hex)
                       }
                     }
                   }
