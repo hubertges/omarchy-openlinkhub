@@ -20,6 +20,9 @@ Panel {
   property string statusMessage: ""
   property bool isBusy: false
 
+  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+  readonly property string ff: root.bar ? root.bar.fontFamily : Style.font.family
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -233,12 +236,12 @@ Panel {
               ? ("Połączono · " + (root.data.liquidName || "iCUE LINK H150i") + " · " + (root.data.psuName || "RM850i"))
               : "Brak połączenia z " + root.apiUrl
             foreground: root.badge.isUrgent ? Color.urgent : (root.badge.isWarning ? Color.warning : Color.accent)
-            fontFamily: root.bar.fontFamily
+            fontFamily: root.ff
             iconComponent: Component {
               Text {
                 text: root.badge.icon
                 color: root.badge.isUrgent ? Color.urgent : (root.badge.isWarning ? Color.warning : Color.accent)
-                font.family: root.bar.fontFamily
+                font.family: root.ff
                 font.pixelSize: Style.font.display
               }
             }
@@ -252,7 +255,7 @@ Panel {
             Button {
               Layout.fillWidth: true
               text: "󰖟 Otwórz Web UI"
-              fontFamily: root.bar.fontFamily
+              fontFamily: root.ff
               fontSize: Style.font.caption
               bordered: true
               onClicked: root.openWebUi()
@@ -261,7 +264,7 @@ Panel {
             Button {
               Layout.fillWidth: true
               text: "󰑐 Odśwież (R)"
-              fontFamily: root.bar.fontFamily
+              fontFamily: root.ff
               fontSize: Style.font.caption
               bordered: true
               onClicked: root.refresh()
@@ -273,7 +276,7 @@ Panel {
             visible: root.statusMessage !== ""
             text: root.statusMessage
             color: Color.accent
-            font.family: root.bar.fontFamily
+            font.family: root.ff
             font.pixelSize: Style.font.caption
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
@@ -281,7 +284,7 @@ Panel {
           }
 
           // ---------- Section 1: Wyświetlany Status (Bar Metric) ----------
-          PanelSeparator { foreground: root.bar.foreground }
+          PanelSeparator { foreground: root.fg }
 
           Column {
             width: parent.width
@@ -289,8 +292,8 @@ Panel {
 
             PanelSectionHeader {
               text: "STATUS NA PASKU (BAR METRIC)"
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
+              foreground: root.fg
+              fontFamily: root.ff
             }
 
             Grid {
@@ -307,7 +310,7 @@ Panel {
                   required property var modelData
                   width: parent.cellWidth
                   text: modelData.icon + "  " + modelData.labelPl
-                  fontFamily: root.bar.fontFamily
+                  fontFamily: root.ff
                   fontSize: Style.font.caption
                   bordered: true
                   selected: root.displayMetric === modelData.id
@@ -319,7 +322,7 @@ Panel {
           }
 
           // ---------- Section 2: Profile Wentylatorów (Fan Profiles) ----------
-          PanelSeparator { foreground: root.bar.foreground }
+          PanelSeparator { foreground: root.fg }
 
           Column {
             width: parent.width
@@ -332,8 +335,8 @@ Panel {
               PanelSectionHeader {
                 id: fanHeader
                 text: "PROFILE WENTYLATORÓW (FANS)"
-                foreground: root.bar.foreground
-                fontFamily: root.bar.fontFamily
+                foreground: root.fg
+                fontFamily: root.ff
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
               }
@@ -342,7 +345,7 @@ Panel {
                 id: activeFanText
                 text: "AKTYWNY: " + (root.data.activeFanProfile || "Quiet").toUpperCase()
                 color: Color.accent
-                font.family: root.bar.fontFamily
+                font.family: root.ff
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 anchors.right: parent.right
@@ -366,7 +369,7 @@ Panel {
                   required property int index
                   width: parent.cellWidth
                   text: modelData.icon + "  " + modelData.name + " (" + (index + 1) + ")"
-                  fontFamily: root.bar.fontFamily
+                  fontFamily: root.ff
                   fontSize: Style.font.caption
                   bordered: true
                   selected: (root.data.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase()
@@ -378,7 +381,7 @@ Panel {
           }
 
           // ---------- Section 3: Tryby Oświetlenia (RGB Lighting Modes) ----------
-          PanelSeparator { foreground: root.bar.foreground }
+          PanelSeparator { foreground: root.fg }
 
           Column {
             width: parent.width
@@ -391,8 +394,8 @@ Panel {
               PanelSectionHeader {
                 id: rgbHeader
                 text: "TRYBY OŚWIETLENIA (RGB)"
-                foreground: root.bar.foreground
-                fontFamily: root.bar.fontFamily
+                foreground: root.fg
+                fontFamily: root.ff
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
               }
@@ -401,7 +404,7 @@ Panel {
                 id: activeRgbText
                 text: "TRYB: " + (root.data.activeRgbMode || "wave").toUpperCase()
                 color: Color.accent
-                font.family: root.bar.fontFamily
+                font.family: root.ff
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 anchors.right: parent.right
@@ -424,7 +427,7 @@ Panel {
                   required property var modelData
                   width: parent.cellWidth
                   text: modelData.icon + "  " + modelData.name
-                  fontFamily: root.bar.fontFamily
+                  fontFamily: root.ff
                   fontSize: Style.font.caption
                   bordered: true
                   selected: (root.data.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase()
@@ -443,8 +446,8 @@ Panel {
               Text {
                 id: brightLabel
                 text: "JASNOŚĆ RGB"
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.family: root.bar.fontFamily
+                color: Qt.darker(root.fg, 1.4)
+                font.family: root.ff
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 anchors.left: parent.left
@@ -454,8 +457,8 @@ Panel {
               Text {
                 id: brightVal
                 text: root.data.brightness + "%"
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
+                color: root.fg
+                font.family: root.ff
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 anchors.right: parent.right
@@ -477,7 +480,7 @@ Panel {
           }
 
           // ---------- Section 4: Szczegóły Sprzętu (Hardware Status) ----------
-          PanelSeparator { foreground: root.bar.foreground }
+          PanelSeparator { foreground: root.fg }
 
           Column {
             width: parent.width
@@ -485,8 +488,8 @@ Panel {
 
             PanelSectionHeader {
               text: "STATUS SPRZĘTU (HARDWARE)"
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
+              foreground: root.fg
+              fontFamily: root.ff
             }
 
             // Chłodzenie Cieczą (AIO Liquid)
@@ -566,8 +569,7 @@ Panel {
 
     width: parent.width
     radius: Style.cornerRadius
-    foreground: root.bar.foreground
-    color: Style.controlFill(false, false, root.bar.foreground, Color.accent)
+    color: Style.controlFill(false, false, root.fg, Color.accent)
     implicitHeight: cardCol.implicitHeight + Style.space(16)
 
     Column {
@@ -583,14 +585,14 @@ Panel {
         Text {
           text: card.icon
           color: Color.accent
-          font.family: root.bar.fontFamily
+          font.family: root.ff
           font.pixelSize: Style.font.caption
           font.bold: true
         }
         Text {
           text: card.title
-          color: Qt.darker(root.bar.foreground, 1.3)
-          font.family: root.bar.fontFamily
+          color: Qt.darker(root.fg, 1.3)
+          font.family: root.ff
           font.pixelSize: Style.font.caption
           font.bold: true
           font.letterSpacing: 0.8
@@ -608,8 +610,8 @@ Panel {
           Text {
             id: lbl
             text: modelData.label
-            color: Qt.darker(root.bar.foreground, 1.4)
-            font.family: root.bar.fontFamily
+            color: Qt.darker(root.fg, 1.4)
+            font.family: root.ff
             font.pixelSize: Style.font.bodySmall
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -618,8 +620,8 @@ Panel {
           Text {
             id: val
             text: modelData.value
-            color: root.bar.foreground
-            font.family: root.bar.fontFamily
+            color: root.fg
+            font.family: root.ff
             font.pixelSize: Style.font.bodySmall
             font.bold: true
             anchors.right: parent.right
