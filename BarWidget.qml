@@ -174,13 +174,45 @@ Panel {
   }
 
   // --- Bar Button on Right Section ---
-  BarIconButton {
+  WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.badgeText
-    slotSize: Style.bar.iconSlot * 2.2
+    text: ""
+    labelVisible: false
+    hasVisualContent: true
+    fixedWidth: Math.max(Style.space(48), badgeRow.implicitWidth + Style.space(16))
+    active: root.badge.isUrgent
+    useActiveColor: true
+    activeColor: Color.urgent
     tooltipText: Model.formatTooltip(root.data, root.displayMetric)
+
+    Row {
+      id: badgeRow
+      anchors.centerIn: parent
+      spacing: Style.space(5)
+
+      Text {
+        text: (root.data && root.data.connected) ? root.badge.icon : "󰌢"
+        color: (root.data && root.data.connected)
+          ? (root.badge.isUrgent ? Color.urgent : (root.badge.isWarning ? Color.warning : Color.accent))
+          : Qt.darker(root.fg, 1.6)
+        font.family: root.ff
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+        anchors.verticalCenter: parent.verticalCenter
+      }
+
+      Text {
+        text: (root.data && root.data.connected) ? root.badge.text : "!"
+        color: (root.data && root.data.connected) ? root.fg : Color.urgent
+        font.family: root.ff
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+        anchors.verticalCenter: parent.verticalCenter
+      }
+    }
+
     onPressed: function(b) {
       if (b === Qt.RightButton) {
         root.cycleMetric()
