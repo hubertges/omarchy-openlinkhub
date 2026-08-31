@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -13,75 +14,70 @@ Panel {
 
   property string apiUrl: root.setting("apiUrl", "http://localhost:27003")
   property string displayMetric: root.setting("displayMetric", "liquid_temp")
+  property string lang: root.setting("lang", "en")
   property int pollInterval: root.setting("pollInterval", 2000)
 
   property bool connected: false
-  property real liquidTemp: 0
-  property string liquidName: ""
-  property int pumpRpm: 0
-  property int psuWatts: 0
-  property string psuName: ""
-  property real psuTemp: 0
-  property real psuVrmTemp: 0
-  property var psuRails: ({})
-  property real cpuTemp: 0
-  property real gpuTemp: 0
-  property real ramTemp: 0
-  property int fanRpm: 0
-  property var fans: []
   property var rawData: Model.emptyData()
-  property string activeFanProfile: "Quiet"
-  property string activeRgbMode: "wave"
-  property int brightness: 100
   property string statusMessage: ""
+  property var badge: Model.resolveBarBadge(root.rawData, root.displayMetric, root.lang)
 
-  readonly property string barText: {
-    if (!root.connected) return "󰌢 !"
-    if (root.displayMetric === "psu_power") return "󱐋 " + root.psuWatts + "W"
-    if (root.displayMetric === "cpu_temp") return "󰍛 " + Math.round(root.cpuTemp) + "°"
-    if (root.displayMetric === "gpu_temp") return "󰢮 " + Math.round(root.gpuTemp) + "°"
-    if (root.displayMetric === "ram_temp") return "󰘚 " + root.ramTemp.toFixed(1) + "°"
-    if (root.displayMetric === "pump_rpm") return "󰈐 " + root.pumpRpm
-    if (root.displayMetric === "fan_rpm") return "󰠝 " + root.fanRpm
-    if (root.displayMetric === "psu_vrm_temp") return "󰏈 " + root.psuVrmTemp.toFixed(1) + "°"
-    return "󰌢 " + root.liquidTemp.toFixed(1) + "°"
+  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+  readonly property string ff: root.bar ? root.bar.fontFamily : Style.font.family
+  readonly property string barText: root.connected ? (root.badge.icon + " " + root.badge.text) : "💧 !"
+  readonly property string tooltipText: Model.formatTooltip(root.rawData, root.displayMetric, root.lang)
+
+  function t(key) {
+    return Model.t(key, root.lang)
   }
 
-  readonly property string tooltipText: Model.formatTooltip(root.rawData, root.displayMetric)
-
-  function refresh() {
-    if (!fetchProc.running) fetchProc.running = true
+  function toggleLanguage() {
+    var nextLang = (root.lang === "en") ? "pl" : "en"
+    root.lang = nextLang
+    root.badge = Model.resolveBarBadge(root.rawData, root.displayMetric, nextLang)
+    saveSetting("lang", nextLang)
   }
 
-  function setDefaultMetric(metricId) {
-    root.displayMetric = metricId
-    root.statusMessage = "󰄬 Domyślna statystyka: " + Model.getMetricInfo(metricId).labelPl
+  function setDefaultMetric(sensorKey) {
+    root.displayMetric = sensorKey
+    root.badge = Model.resolveBarBadge(root.rawData, sensorKey, root.lang)
+    root.statusMessage = Model.t("toastDefault", root.lang) + root.badge.label + " (" + root.badge.text + ")"
+    saveSetting("displayMetric", sensorKey)
+  }
+
+  function saveSetting(key, val) {
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
       var entry = {}
       var cur = root.bar.shell.entryFor(root.moduleName) || {}
       for (var k in cur) if (k !== "id") entry[k] = cur[k]
-      entry.displayMetric = metricId
+      entry[key] = val
       root.bar.shell.updateEntryInline(root.moduleName, entry)
     }
   }
 
   function cycleMetric() {
-    var next = Model.cycleNextMetric(root.displayMetric)
+    var next = Model.cycleNextSensor(root.rawData, root.displayMetric)
     setDefaultMetric(next)
+  }
+
+  function refresh() {
+    if (!fetchProc.running) fetchProc.running = true
   }
 
   function openWebUi() {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Fan Profiles ---
+  // --- Apply Fan Profile ---
   Process {
     id: setFanProc
     property string profileName: ""
     onExited: function(code) {
       if (code === 0) {
-        root.statusMessage = "Zastosowano profil wentylatorów: " + profileName
+        root.statusMessage = Model.t("toastFan", root.lang) + profileName
         root.refresh()
+      } else {
+        root.statusMessage = Model.t("toastErrorFan", root.lang)
       }
     }
   }
@@ -89,7 +85,7 @@ Panel {
   function applyFanProfile(profileName) {
     if (setFanProc.running) return
     setFanProc.profileName = profileName
-    root.activeFanProfile = profileName
+    if (root.rawData) root.rawData.activeFanProfile = profileName
     var devices = (root.rawData && root.rawData.fanControllableDevices && root.rawData.fanControllableDevices.length > 0)
       ? root.rawData.fanControllableDevices
       : ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
@@ -102,14 +98,16 @@ Panel {
     setFanProc.running = true
   }
 
-  // --- RGB Modes ---
+  // --- Apply RGB Mode ---
   Process {
     id: setRgbProc
     property string rgbModeName: ""
     onExited: function(code) {
       if (code === 0) {
-        root.statusMessage = "Zastosowano tryb RGB: " + rgbModeName
+        root.statusMessage = Model.t("toastRgb", root.lang) + rgbModeName
         root.refresh()
+      } else {
+        root.statusMessage = Model.t("toastErrorRgb", root.lang)
       }
     }
   }
@@ -117,8 +115,7 @@ Panel {
   function applyRgbMode(rgbMode) {
     if (setRgbProc.running) return
     setRgbProc.rgbModeName = rgbMode
-    root.activeRgbMode = rgbMode
-
+    if (root.rawData) root.rawData.activeRgbMode = rgbMode
     var clusterPayload = JSON.stringify({ deviceId: "cluster", channelId: 0, profile: rgbMode })
     var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + clusterPayload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
@@ -133,7 +130,7 @@ Panel {
     setRgbProc.running = true
   }
 
-  // --- Brightness ---
+  // --- Apply Brightness ---
   Process {
     id: setBrightnessProc
     onExited: function(code) { root.refresh() }
@@ -141,7 +138,7 @@ Panel {
 
   function applyBrightness(level) {
     var b = Math.max(0, Math.min(100, Math.round(level)))
-    root.brightness = b
+    if (root.rawData) root.rawData.brightness = b
     var devices = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
     var script = ""
     for (var i = 0; i < devices.length; i++) {
@@ -164,7 +161,7 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  // Polling via curl
+  // --- Polling via curl ---
   Process {
     id: fetchProc
     command: ["curl", "-fsSL", "--max-time", "2", root.apiUrl + "/api/devices/"]
@@ -174,38 +171,24 @@ Panel {
         var raw = String(text || "").trim()
         if (!raw || raw.indexOf("{") !== 0) {
           root.connected = false
+          root.badge = Model.resolveBarBadge(root.rawData, root.displayMetric, root.lang)
           return
         }
         var parsed = Model.parseOpenLinkHubData(raw)
         root.rawData = parsed
         root.connected = parsed.connected
-        root.liquidTemp = parsed.liquidTemp !== null ? parsed.liquidTemp : 0
-        root.liquidName = parsed.liquidName || "iCUE LINK H150i"
-        root.pumpRpm = parsed.pumpRpm !== null ? parsed.pumpRpm : 0
-        root.psuWatts = parsed.psuWatts !== null ? parsed.psuWatts : 0
-        root.psuName = parsed.psuName || "RM850i"
-        root.psuTemp = parsed.psuTemp !== null ? parsed.psuTemp : 0
-        root.psuVrmTemp = parsed.psuVrmTemp !== null ? parsed.psuVrmTemp : 0
-        root.psuRails = parsed.psuRails || ({})
-        root.cpuTemp = parsed.cpuTemp !== null ? parsed.cpuTemp : 0
-        root.gpuTemp = parsed.gpuTemp !== null ? parsed.gpuTemp : 0
-        root.ramTemp = parsed.ramTemp !== null ? parsed.ramTemp : 0
-        root.fanRpm = parsed.maxFanRpm !== null ? parsed.maxFanRpm : 0
-        root.fans = parsed.fans || []
-        root.activeFanProfile = parsed.activeFanProfile || "Quiet"
-        root.activeRgbMode = parsed.activeRgbMode || "wave"
-        root.brightness = parsed.brightness !== undefined ? parsed.brightness : 100
+        root.badge = Model.resolveBarBadge(parsed, root.displayMetric, root.lang)
       }
     }
   }
 
-  // --- Button on Bar ---
+  // --- Bar Button on Right Section ---
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: root.barText
-    slotSize: Style.bar.iconSlot * 2.2
+    slotSize: Style.bar.iconSlot * 2.3
     tooltipText: root.tooltipText
     onPressed: function(b) {
       if (b === Qt.RightButton) root.cycleMetric()
@@ -222,8 +205,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(450))
-    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(660))
+    contentWidth: panel.fittedContentWidth(Style.space(460))
+    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(680))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -232,6 +215,7 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
         if (t === "r" || t === "R") root.refresh()
+        if (t === "l" || t === "L") root.toggleLanguage()
         if (t === "1") root.applyFanProfile("Quiet")
         if (t === "2") root.applyFanProfile("Balanced")
         if (t === "3") root.applyFanProfile("Performance")
@@ -239,44 +223,80 @@ Panel {
       }
 
       Flickable {
+        id: flickable
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: panelColumn.implicitHeight + Style.space(20)
+        contentWidth: width - Style.space(10)
+        contentHeight: panelColumn.implicitHeight + Style.space(24)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+
+        ScrollBar.vertical: ScrollBar {
+          policy: ScrollBar.AlwaysOn
+          active: true
+          width: Style.space(6)
+          contentItem: Rectangle {
+            implicitWidth: Style.space(6)
+            radius: width / 2
+            color: Style.controlFill(false, parent.hovered || parent.pressed, root.fg, Color.accent)
+          }
+        }
 
         Column {
           id: panelColumn
           width: parent.width
           spacing: Style.space(12)
 
-          // ---------- Hero ----------
-          PanelHero {
+          // ---------- Hero: Primary Sensor & Language Switcher ----------
+          Item {
             width: parent.width
-            title: root.connected ? root.barText : "OpenLinkHub Offline"
-            meta: root.connected
-              ? ("Domyślna statystyka: " + Model.getMetricInfo(root.displayMetric).labelPl + " · " + root.liquidName)
-              : "Brak połączenia z " + root.apiUrl
-            foreground: Color.accent
-            fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-            iconComponent: Component {
-              Text {
-                text: Model.getMetricInfo(root.displayMetric).icon
-                color: Color.accent
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.display
+            implicitHeight: Math.max(heroItem.implicitHeight, langBtn.implicitHeight)
+
+            PanelHero {
+              id: heroItem
+              anchors.left: parent.left
+              anchors.right: langBtn.left
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              title: root.connected ? root.badge.fullText : ("OpenLinkHub: " + root.t("offline"))
+              meta: root.connected
+                ? (root.t("defaultOnBar") + ": " + root.badge.label)
+                : ("http://localhost:27003 (" + root.t("offline") + ")")
+              foreground: Color.accent
+              fontFamily: root.ff
+              iconComponent: Component {
+                Text {
+                  text: root.badge.icon
+                  color: Color.accent
+                  font.family: root.ff
+                  font.pixelSize: Style.font.display
+                }
               }
+            }
+
+            // Compact Language Switcher Button (EN / PL)
+            Button {
+              id: langBtn
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: "🌐 " + root.lang.toUpperCase()
+              fontFamily: root.ff
+              fontSize: Style.font.caption
+              bordered: true
+              horizontalPadding: Style.space(8)
+              verticalPadding: Style.space(4)
+              onClicked: root.toggleLanguage()
             }
           }
 
-          // ---------- Quick Actions ----------
+          // ---------- Quick Action Buttons ----------
           RowLayout {
             width: parent.width
             spacing: Style.space(8)
 
             Button {
               Layout.fillWidth: true
-              text: "󰖟 Otwórz Web UI"
+              text: root.t("webUi")
+              fontFamily: root.ff
               fontSize: Style.font.caption
               bordered: true
               onClicked: root.openWebUi()
@@ -284,465 +304,342 @@ Panel {
 
             Button {
               Layout.fillWidth: true
-              text: "󰑐 Odśwież (R)"
+              text: root.t("refresh")
+              fontFamily: root.ff
               fontSize: Style.font.caption
               bordered: true
               onClicked: root.refresh()
             }
           }
 
-          // ---------- Toast Feedback ----------
+          // ---------- Toast Feedback Message ----------
           Rectangle {
             visible: root.statusMessage !== ""
             width: parent.width
             height: statusTxt.implicitHeight + Style.space(10)
             radius: Style.cornerRadius
-            color: Style.hoverFillFor(root.bar ? root.bar.foreground : Color.foreground, Color.accent)
+            color: Style.hoverFillFor(root.fg, Color.accent)
 
             Text {
               id: statusTxt
               anchors.centerIn: parent
               text: root.statusMessage
               color: Color.accent
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.family: root.ff
               font.pixelSize: Style.font.caption
               font.bold: true
             }
           }
 
-          // ---------- Section 1: Wszystkie Statystyki (Podwójne Kliknięcie) ----------
-          PanelSeparator { foreground: root.bar ? root.bar.foreground : Color.foreground }
+          // ---------- Consolidated Section 1: Devices & Sensors ----------
+          PanelSeparator { foreground: root.fg }
 
-          Column {
+          Item {
             width: parent.width
-            spacing: Style.space(8)
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(sec1Hdr.implicitHeight, sec1Hint.implicitHeight)
-
-              PanelSectionHeader {
-                id: sec1Hdr
-                text: "WSZYSTKIE STATYSTYKI SPRZĘTU"
-                foreground: root.bar ? root.bar.foreground : Color.foreground
-                fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              Text {
-                id: sec1Hint
-                text: "KLIKNIJ = NA PASEK"
-                color: Color.accent
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-
-            Grid {
-              width: parent.width
-              columns: 2
-              spacing: Style.space(8)
-
-              readonly property real cellWidth: (width - spacing) / 2
-
-              Repeater {
-                model: Model.getMetricDisplayList(root.rawData)
-
-                BorderSurface {
-                  id: tile
-                  required property var modelData
-                  width: parent.cellWidth
-                  height: Style.space(56)
-                  radius: Style.cornerRadius
-                  color: (root.displayMetric === modelData.id)
-                    ? Style.selectedFillFor(root.bar ? root.bar.foreground : Color.foreground, Color.accent)
-                    : Style.controlFill(false, tileMouse.containsMouse, root.bar ? root.bar.foreground : Color.foreground, Color.accent)
-                  borderSpec: (root.displayMetric === modelData.id)
-                    ? Border.controlSpec("focus", root.bar ? root.bar.foreground : Color.foreground, Color.accent)
-                    : Border.controlSpec(tileMouse.containsMouse ? "hover-cursor" : "normal", root.bar ? root.bar.foreground : Color.foreground, Color.accent)
-
-                  Item {
-                    anchors.fill: parent
-                    anchors.margins: Style.space(8)
-
-                    Row {
-                      anchors.left: parent.left
-                      anchors.top: parent.top
-                      spacing: Style.space(6)
-
-                      Text {
-                        text: tile.modelData.icon
-                        color: (root.displayMetric === tile.modelData.id) ? Color.accent : (root.bar ? root.bar.foreground : Color.foreground)
-                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                        font.pixelSize: Style.font.bodySmall
-                        font.bold: true
-                      }
-
-                      Text {
-                        text: tile.modelData.labelPl
-                        color: (root.displayMetric === tile.modelData.id) ? Color.accent : Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.3)
-                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                        font.pixelSize: Style.font.caption
-                        font.bold: true
-                      }
-                    }
-
-                    Text {
-                      anchors.right: parent.right
-                      anchors.top: parent.top
-                      visible: root.displayMetric === tile.modelData.id
-                      text: "󰄬 PASEK"
-                      color: Color.accent
-                      font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-
-                    Text {
-                      anchors.left: parent.left
-                      anchors.bottom: parent.bottom
-                      text: tile.modelData.formatted
-                      color: (root.displayMetric === tile.modelData.id) ? Color.accent : (root.bar ? root.bar.foreground : Color.foreground)
-                      font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                      font.pixelSize: Style.font.body
-                      font.bold: true
-                    }
-                  }
-
-                  MouseArea {
-                    id: tileMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.setDefaultMetric(tile.modelData.id)
-                    onDoubleClicked: root.setDefaultMetric(tile.modelData.id)
-                  }
-                }
-              }
-            }
-          }
-
-          // ---------- Section 2: Profile Wentylatorów ----------
-          PanelSeparator { foreground: root.bar ? root.bar.foreground : Color.foreground }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(fanHeader.implicitHeight, activeFanText.implicitHeight)
-
-              PanelSectionHeader {
-                id: fanHeader
-                text: "PROFILE WENTYLATORÓW (FANS)"
-                foreground: root.bar ? root.bar.foreground : Color.foreground
-                fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              Text {
-                id: activeFanText
-                text: "AKTYWNY: " + root.activeFanProfile.toUpperCase()
-                color: Color.accent
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                anchors.right: parent.right
-                anchors.rightMargin: Style.space(4)
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-
-            Grid {
-              width: parent.width
-              columns: 2
-              spacing: Style.space(6)
-
-              readonly property real cellWidth: (width - spacing) / 2
-
-              Repeater {
-                model: Model.FAN_PROFILES
-
-                Button {
-                  required property var modelData
-                  required property int index
-                  width: parent.cellWidth
-                  text: modelData.icon + "  " + modelData.name + " (" + (index + 1) + ")"
-                  fontSize: Style.font.caption
-                  bordered: true
-                  selected: root.activeFanProfile.toLowerCase() === modelData.id.toLowerCase()
-                  active: root.activeFanProfile.toLowerCase() === modelData.id.toLowerCase()
-                  onClicked: root.applyFanProfile(modelData.id)
-                }
-              }
-            }
-          }
-
-          // ---------- Section 3: Tryby Oświetlenia (RGB) ----------
-          PanelSeparator { foreground: root.bar ? root.bar.foreground : Color.foreground }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(rgbHeader.implicitHeight, activeRgbText.implicitHeight)
-
-              PanelSectionHeader {
-                id: rgbHeader
-                text: "TRYBY OŚWIETLENIA (RGB)"
-                foreground: root.bar ? root.bar.foreground : Color.foreground
-                fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              Text {
-                id: activeRgbText
-                text: "TRYB: " + root.activeRgbMode.toUpperCase()
-                color: Color.accent
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                anchors.right: parent.right
-                anchors.rightMargin: Style.space(4)
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-
-            Grid {
-              width: parent.width
-              columns: 2
-              spacing: Style.space(6)
-
-              readonly property real cellWidth: (width - spacing) / 2
-
-              Repeater {
-                model: Model.RGB_MODES
-
-                Button {
-                  required property var modelData
-                  width: parent.cellWidth
-                  text: modelData.icon + "  " + modelData.name
-                  fontSize: Style.font.caption
-                  bordered: true
-                  selected: root.activeRgbMode.toLowerCase() === modelData.id.toLowerCase()
-                  active: root.activeRgbMode.toLowerCase() === modelData.id.toLowerCase()
-                  onClicked: root.applyRgbMode(modelData.id)
-                }
-              }
-            }
-
-            // Jasność RGB
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(brightLabel.implicitHeight, brightVal.implicitHeight)
-              anchors.topMargin: Style.space(4)
-
-              Text {
-                id: brightLabel
-                text: "JASNOŚĆ RGB"
-                color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.4)
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              Text {
-                id: brightVal
-                text: root.brightness + "%"
-                color: root.bar ? root.bar.foreground : Color.foreground
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                anchors.right: parent.right
-                anchors.rightMargin: Style.space(4)
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-
-            PanelSlider {
-              width: parent.width
-              bar: root.bar
-              minimum: 0
-              maximum: 100
-              step: 5
-              integer: true
-              value: root.brightness
-              onReleased: function(v) { root.applyBrightness(v) }
-            }
-          }
-
-          // ---------- Section 4: Szczegóły Sprzętu ----------
-          PanelSeparator { foreground: root.bar ? root.bar.foreground : Color.foreground }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(8)
+            implicitHeight: Math.max(devHdr.implicitHeight, devHint.implicitHeight)
 
             PanelSectionHeader {
-              text: "SZCZEGÓŁOWY STAN SPRZĘTU"
-              foreground: root.bar ? root.bar.foreground : Color.foreground
-              fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+              id: devHdr
+              text: root.t("devicesOverview")
+              foreground: root.fg
+              fontFamily: root.ff
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
             }
 
-            // AIO
-            DetailCard {
-              title: "CHŁODZENIE CIECZĄ (AIO)"
-              icon: "󰌢"
-              onDoubleClicked: root.setDefaultMetric("liquid_temp")
-              rows: [
-                { label: "Temperatura cieczy", value: root.liquidTemp > 0 ? (root.liquidTemp.toFixed(1) + " °C") : "--" },
-                { label: "Obroty pompy", value: root.pumpRpm > 0 ? (root.pumpRpm + " RPM") : "--" },
-                { label: "Urządzenie", value: root.liquidName }
-              ]
+            Text {
+              id: devHint
+              text: root.t("setAsDefault")
+              color: Qt.darker(root.fg, 1.4)
+              font.family: root.ff
+              font.pixelSize: Style.font.caption
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+            }
+          }
+
+          Repeater {
+            model: Model.getDeviceGroups(root.rawData, root.lang)
+
+            DeviceCard {
+              required property var modelData
+              width: parent.width
+              deviceGroup: modelData
+              selectedMetric: root.displayMetric
+              onSensorSelected: function(key) { root.setDefaultMetric(key) }
+            }
+          }
+
+          // ---------- Section 2: Fan Profiles ----------
+          PanelSeparator { foreground: root.fg }
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(fanHeader.implicitHeight, activeFanText.implicitHeight)
+
+            PanelSectionHeader {
+              id: fanHeader
+              text: root.t("fanProfiles")
+              foreground: root.fg
+              fontFamily: root.ff
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
             }
 
-            // PSU
-            DetailCard {
-              title: "ZASILACZ (PSU · " + root.psuName + ")"
-              icon: "󱐋"
-              onDoubleClicked: root.setDefaultMetric("psu_power")
-              rows: [
-                { label: "Łączna moc (Power Out)", value: root.psuWatts > 0 ? (root.psuWatts + " W") : "--" },
-                { label: "Linia 12V", value: root.psuRails["12V Rail"] ? (root.psuRails["12V Rail"].watts + "W (" + root.psuRails["12V Rail"].volts + "V / " + root.psuRails["12V Rail"].amps + "A)") : "--" },
-                { label: "Linia 5V / 3.3V", value: ((root.psuRails["5V Rail"] ? root.psuRails["5V Rail"].watts : 0) + "W") + " · " + ((root.psuRails["3V Rail"] ? root.psuRails["3V Rail"].watts : 0) + "W") },
-                { label: "Temperatura VRM / PSU", value: (root.psuVrmTemp > 0 ? (root.psuVrmTemp.toFixed(1) + "°C") : "--") + " · " + (root.psuTemp > 0 ? (root.psuTemp.toFixed(1) + "°C") : "--") }
-              ]
+            Text {
+              id: activeFanText
+              text: root.t("activeProfile") + ": " + (root.rawData ? (root.rawData.activeFanProfile || "Quiet").toUpperCase() : "QUIET")
+              color: Color.accent
+              font.family: root.ff
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+            }
+          }
+
+          Grid {
+            width: parent.width
+            columns: 2
+            spacing: Style.space(6)
+            readonly property real cellWidth: (width - spacing) / 2
+
+            Repeater {
+              model: Model.FAN_PROFILES
+
+              Button {
+                required property var modelData
+                required property int index
+                width: parent.cellWidth
+                text: modelData.icon + "  " + (root.lang === "pl" ? modelData.labelPl : modelData.name) + " (" + (index + 1) + ")"
+                fontFamily: root.ff
+                fontSize: Style.font.caption
+                bordered: true
+                selected: (root.rawData && (root.rawData.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase())
+                active: (root.rawData && (root.rawData.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase())
+                onClicked: root.applyFanProfile(modelData.id)
+              }
+            }
+          }
+
+          // ---------- Section 3: RGB Modes & Brightness ----------
+          PanelSeparator { foreground: root.fg }
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(rgbHeader.implicitHeight, activeRgbText.implicitHeight)
+
+            PanelSectionHeader {
+              id: rgbHeader
+              text: root.t("rgbModes")
+              foreground: root.fg
+              fontFamily: root.ff
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
             }
 
-            // CPU/GPU/RAM
-            DetailCard {
-              title: "TEMPERATURY PODZESPOŁÓW"
-              icon: "󰍛"
-              onDoubleClicked: root.setDefaultMetric("cpu_temp")
-              rows: [
-                { label: "Procesor (CPU)", value: root.cpuTemp > 0 ? (root.cpuTemp.toFixed(1) + " °C") : "--" },
-                { label: "Karta graficzna (GPU)", value: root.gpuTemp > 0 ? (root.gpuTemp.toFixed(1) + " °C") : "--" },
-                { label: "Pamięć RAM (Dominator)", value: root.ramTemp > 0 ? (root.ramTemp.toFixed(1) + " °C") : "--" }
-              ]
+            Text {
+              id: activeRgbText
+              text: root.t("activeMode") + ": " + (root.rawData ? (root.rawData.activeRgbMode || "wave").toUpperCase() : "WAVE")
+              color: Color.accent
+              font.family: root.ff
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+            }
+          }
+
+          Grid {
+            width: parent.width
+            columns: 2
+            spacing: Style.space(6)
+            readonly property real cellWidth: (width - spacing) / 2
+
+            Repeater {
+              model: Model.RGB_MODES
+
+              Button {
+                required property var modelData
+                width: parent.cellWidth
+                text: modelData.icon + "  " + (root.lang === "pl" ? modelData.labelPl : modelData.name)
+                fontFamily: root.ff
+                fontSize: Style.font.caption
+                bordered: true
+                selected: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
+                active: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
+                onClicked: root.applyRgbMode(modelData.id)
+              }
+            }
+          }
+
+          // Brightness Slider
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(brightLabel.implicitHeight, brightVal.implicitHeight)
+            anchors.topMargin: Style.space(4)
+
+            Text {
+              id: brightLabel
+              text: root.t("brightness")
+              color: Qt.darker(root.fg, 1.4)
+              font.family: root.ff
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
             }
 
-            // Fans
-            DetailCard {
-              title: "WENTYLATORY (" + root.fans.length + " SZT.)"
-              icon: "󰠝"
-              onDoubleClicked: root.setDefaultMetric("fan_rpm")
-              rows: root.getFanRows()
+            Text {
+              id: brightVal
+              text: ((root.rawData && root.rawData.brightness !== undefined) ? root.rawData.brightness : 100) + "%"
+              color: root.fg
+              font.family: root.ff
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
             }
+          }
+
+          PanelSlider {
+            width: parent.width
+            bar: root.bar
+            minimum: 0
+            maximum: 100
+            step: 5
+            integer: true
+            value: (root.rawData && root.rawData.brightness !== undefined) ? root.rawData.brightness : 100
+            onReleased: function(v) { root.applyBrightness(v) }
           }
 
           Item {
             width: parent.width
-            height: Style.space(6)
+            height: Style.space(10)
           }
         }
       }
     }
   }
 
-  function getFanRows() {
-    var list = []
-    if (Array.isArray(root.fans)) {
-      for (var i = 0; i < root.fans.length; i++) {
-        var f = root.fans[i]
-        list.push({
-          label: f.name + " (" + f.devName + ")",
-          value: f.rpm + " RPM" + (f.profile ? (" · " + f.profile) : "")
-        })
-      }
-    }
-    if (list.length === 0) list.push({ label: "Wentylatory", value: "--" })
-    return list
-  }
-
-  // --- Subcomponent: DetailCard ---
-  component DetailCard: BorderSurface {
-    id: dCard
-    property string title: ""
-    property string icon: ""
-    property var rows: []
-    signal doubleClicked()
+  // --- Subcomponent: DeviceCard (Consolidated Device Sensor Box) ---
+  component DeviceCard: BorderSurface {
+    id: card
+    property var deviceGroup: null
+    property string selectedMetric: ""
+    signal sensorSelected(string key)
 
     width: parent.width
     radius: Style.cornerRadius
-    color: Style.controlFill(false, dCardMouse.containsMouse, root.bar ? root.bar.foreground : Color.foreground, Color.accent)
-    implicitHeight: dCardCol.implicitHeight + Style.space(16)
+    color: Style.controlFill(false, false, root.fg, Color.accent)
+    implicitHeight: cardCol.implicitHeight + Style.space(16)
 
     Column {
-      id: dCardCol
+      id: cardCol
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: parent.top
       anchors.margins: Style.space(8)
       spacing: Style.space(6)
 
+      // Device Title Header
       Row {
         spacing: Style.space(6)
         Text {
-          text: dCard.icon
+          text: card.deviceGroup ? card.deviceGroup.icon : ""
           color: Color.accent
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          font.family: root.ff
           font.pixelSize: Style.font.caption
           font.bold: true
         }
         Text {
-          text: dCard.title
-          color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.3)
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          text: card.deviceGroup ? card.deviceGroup.title : ""
+          color: Qt.darker(root.fg, 1.2)
+          font.family: root.ff
           font.pixelSize: Style.font.caption
           font.bold: true
-          font.letterSpacing: 0.8
+          font.letterSpacing: 0.6
         }
       }
 
+      // Sensor Rows
       Repeater {
-        model: dCard.rows
+        model: card.deviceGroup ? card.deviceGroup.sensors : []
 
-        Item {
+        BorderSurface {
+          id: sensorRow
           required property var modelData
-          width: dCardCol.width
-          implicitHeight: Math.max(lbl.implicitHeight, val.implicitHeight)
+          readonly property bool isCurrent: card.selectedMetric === modelData.key
+          width: cardCol.width
+          height: Style.space(34)
+          radius: Style.cornerRadius
+          color: isCurrent
+            ? Style.selectedFillFor(root.fg, Color.accent)
+            : Style.controlFill(false, rowMouse.containsMouse, root.fg, Color.accent)
+          borderSpec: isCurrent
+            ? Border.controlSpec("focus", root.fg, Color.accent)
+            : Border.controlSpec(rowMouse.containsMouse ? "hover-cursor" : "normal", root.fg, Color.accent)
 
-          Text {
-            id: lbl
-            text: modelData.label
-            color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.4)
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.bodySmall
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
+          Item {
+            anchors.fill: parent
+            anchors.margins: Style.space(6)
+
+            Row {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(6)
+
+              Text {
+                text: sensorRow.modelData.icon
+                color: sensorRow.isCurrent ? Color.accent : (sensorRow.modelData.icon === "💧" ? "#38bdf8" : root.fg)
+                font.family: root.ff
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              Text {
+                text: sensorRow.modelData.label
+                color: sensorRow.isCurrent ? Color.accent : root.fg
+                font.family: root.ff
+                font.pixelSize: Style.font.bodySmall
+                font.bold: sensorRow.isCurrent
+              }
+            }
+
+            Row {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(6)
+
+              Text {
+                visible: sensorRow.isCurrent
+                text: "󰄬 " + root.t("defaultOnBar")
+                color: Color.accent
+                font.family: root.ff
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Text {
+                text: sensorRow.modelData.value
+                color: sensorRow.isCurrent ? Color.accent : root.fg
+                font.family: root.ff
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+            }
           }
 
-          Text {
-            id: val
-            text: modelData.value
-            color: root.bar ? root.bar.foreground : Color.foreground
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
+          MouseArea {
+            id: rowMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: card.sensorSelected(sensorRow.modelData.key)
+            onDoubleClicked: card.sensorSelected(sensorRow.modelData.key)
           }
         }
       }
-    }
-
-    MouseArea {
-      id: dCardMouse
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onDoubleClicked: dCard.doubleClicked()
     }
   }
 }
