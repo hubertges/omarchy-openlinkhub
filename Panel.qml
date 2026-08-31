@@ -33,8 +33,8 @@ Panel {
   readonly property string themeAccentHex: root.adaptedTheme.primaryHex
   readonly property string themeSecondaryHex: root.adaptedTheme.secondaryHex
 
-  readonly property string activePrimaryHex: root.themeSync ? root.themeAccentHex : root.primaryColorHex
-  readonly property string activeSecondaryHex: root.themeSync ? root.themeSecondaryHex : root.secondaryColorHex
+  readonly property string activePrimaryHex: root.primaryColorHex
+  readonly property string activeSecondaryHex: root.secondaryColorHex
   readonly property string activeRgbMode: (root.rawData && root.rawData.activeRgbMode) ? root.rawData.activeRgbMode : "wave"
   readonly property bool activeModeSupportsColor: Model.modeSupportsCustomColors(root.activeRgbMode)
 
@@ -57,6 +57,10 @@ Panel {
     root.themeSync = nextSync
     saveSetting("themeSync", nextSync)
     if (nextSync) {
+      root.primaryColorHex = root.themeAccentHex
+      root.secondaryColorHex = root.themeSecondaryHex
+      saveSetting("primaryColor", root.themeAccentHex)
+      saveSetting("secondaryColor", root.themeSecondaryHex)
       root.statusMessage = Model.t("toastThemeSyncOn", root.lang) + root.themeAccentHex
       applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
     } else {
@@ -66,7 +70,6 @@ Panel {
   }
 
   function setCustomColor(isPrimary, hex) {
-    if (root.themeSync) return
     if (isPrimary) {
       root.primaryColorHex = hex
       saveSetting("primaryColor", hex)
@@ -115,12 +118,16 @@ Panel {
     function onAccentChanged() {
       if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
         var adapted = Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
+        root.primaryColorHex = adapted.primaryHex
+        root.secondaryColorHex = adapted.secondaryHex
         root.applyRgbColors(root.activeRgbMode, adapted.primaryHex, adapted.secondaryHex)
       }
     }
     function onBackgroundChanged() {
       if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
         var adapted = Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
+        root.primaryColorHex = adapted.primaryHex
+        root.secondaryColorHex = adapted.secondaryHex
         root.applyRgbColors(root.activeRgbMode, adapted.primaryHex, adapted.secondaryHex)
       }
     }
@@ -300,10 +307,10 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  // --- Polling Devices & Temperatures & Cluster RGB in Parallel ---
+  // --- Polling Devices & Temperatures & Cluster RGB & Theme Colors ---
   Process {
     id: fetchProc
-    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster"]
+    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster && echo '===THEME===' && cat ~/.local/state/omarchy/current/theme/colors.toml 2>/dev/null || true"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -566,7 +573,7 @@ Panel {
             }
           }
 
-          // ---------- Section 3: RGB Modes, Theme Sync & Custom Colors ----------
+          // ---------- Section 3: RGB Modes & Distinct Theme Palette ----------
           PanelSeparator { foreground: root.fg }
 
           Item {
@@ -621,7 +628,7 @@ Panel {
             }
           }
 
-          // ---------- RGB Color Customization / Theme Sync Panel ----------
+          // ---------- RGB Distinct Theme Palette & Color Assignment ----------
           BorderSurface {
             width: parent.width
             radius: Style.cornerRadius
@@ -669,7 +676,7 @@ Panel {
               Column {
                 width: parent.width
                 spacing: Style.space(6)
-                opacity: (root.activeModeSupportsColor && !root.themeSync) ? 1.0 : 0.45
+                opacity: root.activeModeSupportsColor ? 1.0 : 0.45
 
                 Text {
                   text: root.t("primaryColor") + ": " + root.activePrimaryHex.toUpperCase()
@@ -681,24 +688,39 @@ Panel {
 
                 Grid {
                   width: parent.width
-                  columns: 7
+                  columns: 6
                   spacing: Style.space(6)
-                  readonly property real swatchWidth: (width - (spacing * 6)) / 7
+                  readonly property real swatchWidth: (width - (spacing * 5)) / 6
 
                   Repeater {
-                    model: Model.COLOR_PALETTES
+                    model: (root.rawData && root.rawData.themePalette && root.rawData.themePalette.length > 0)
+                      ? root.rawData.themePalette
+                      : Model.DEFAULT_THEME_PALETTE
+
                     Rectangle {
+                      id: pSwatch
                       required property var modelData
                       width: parent.swatchWidth
-                      height: Style.space(22)
+                      height: Style.space(24)
                       radius: Style.space(4)
                       color: modelData.hex
-                      border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
+                      border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : (pMouse.containsMouse ? Color.accent : Qt.darker(root.fg, 1.6))
                       border.width: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
 
+                      Text {
+                        anchors.centerIn: parent
+                        text: (root.activePrimaryHex.toLowerCase() === parent.modelData.hex.toLowerCase()) ? "󰄬" : ""
+                        color: Model.isDarkColor(parent.modelData.hex) ? "#ffffff" : "#000000"
+                        font.family: root.ff
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+
                       MouseArea {
+                        id: pMouse
                         anchors.fill: parent
-                        enabled: root.activeModeSupportsColor && !root.themeSync
+                        hoverEnabled: true
+                        enabled: root.activeModeSupportsColor
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(true, parent.modelData.hex)
                       }
@@ -717,24 +739,39 @@ Panel {
 
                 Grid {
                   width: parent.width
-                  columns: 7
+                  columns: 6
                   spacing: Style.space(6)
-                  readonly property real swatchWidth: (width - (spacing * 6)) / 7
+                  readonly property real swatchWidth: (width - (spacing * 5)) / 6
 
                   Repeater {
-                    model: Model.COLOR_PALETTES
+                    model: (root.rawData && root.rawData.themePalette && root.rawData.themePalette.length > 0)
+                      ? root.rawData.themePalette
+                      : Model.DEFAULT_THEME_PALETTE
+
                     Rectangle {
+                      id: sSwatch
                       required property var modelData
                       width: parent.swatchWidth
-                      height: Style.space(22)
+                      height: Style.space(24)
                       radius: Style.space(4)
                       color: modelData.hex
-                      border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
+                      border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : (sMouse.containsMouse ? Color.accent : Qt.darker(root.fg, 1.6))
                       border.width: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
 
+                      Text {
+                        anchors.centerIn: parent
+                        text: (root.activeSecondaryHex.toLowerCase() === parent.modelData.hex.toLowerCase()) ? "󰄬" : ""
+                        color: Model.isDarkColor(parent.modelData.hex) ? "#ffffff" : "#000000"
+                        font.family: root.ff
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+
                       MouseArea {
+                        id: sMouse
                         anchors.fill: parent
-                        enabled: root.activeModeSupportsColor && !root.themeSync
+                        hoverEnabled: true
+                        enabled: root.activeModeSupportsColor
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(false, parent.modelData.hex)
                       }
