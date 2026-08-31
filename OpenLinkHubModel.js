@@ -1,7 +1,7 @@
 .pragma library
 
 // OpenLinkHub Model & Helper Utilities for Omarchy shell plugin
-// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes, distinct theme palette resolver & dark-mode adaptation.
+// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes & color sync.
 
 var I18N = {
   en: {
@@ -19,12 +19,12 @@ var I18N = {
     noProfiles: "No speed profiles found",
     rgbModes: "RGB LIGHTING MODES",
     activeMode: "MODE",
-    rgbColors: "RGB COLORS & THEME PALETTE",
+    rgbColors: "RGB COLORS",
     primaryColor: "Primary Color",
     secondaryColor: "Secondary Color",
-    themeSyncedNotice: "Theme Sync Active: Click any palette color to assign",
-    manualColorsNotice: "Manual Palette: Click any color to apply immediately",
-    rainbowFixedNotice: "Mode uses fixed rainbow colors (color customization disabled)",
+    themeSyncedNotice: "Synced with Omarchy theme accent",
+    manualColorsNotice: "Manual color selection",
+    rainbowFixedNotice: "Mode uses fixed rainbow colors",
     brightness: "RGB BRIGHTNESS",
     devicesOverview: "HARDWARE DEVICES & SENSORS",
     systemSensors: "System Sensors",
@@ -48,7 +48,7 @@ var I18N = {
     toastDefault: "󰄬 Set as default bar metric: ",
     toastFan: "󰄬 Applied fan profile across all devices: ",
     toastRgb: "󰄬 Applied RGB mode: ",
-    toastColors: "󰄬 Applied RGB colors immediately: ",
+    toastColors: "󰄬 Applied RGB colors: ",
     toastThemeSyncOn: "󰄬 Enabled RGB Theme Sync with ",
     toastThemeSyncOff: "󰄬 Disabled RGB Theme Sync (manual color control enabled)",
     toastErrorFan: "Error applying fan profile",
@@ -71,12 +71,12 @@ var I18N = {
     noProfiles: "Brak zdefiniowanych profili",
     rgbModes: "TRYBY OŚWIETLENIA (RGB)",
     activeMode: "TRYB",
-    rgbColors: "KOLORY RGB I PALETA MOTYWU",
+    rgbColors: "KOLORY RGB",
     primaryColor: "Kolor główny",
     secondaryColor: "Kolor pomocniczy",
-    themeSyncedNotice: "Sync z motywem: Kliknij barwę z palety aby przypisać",
-    manualColorsNotice: "Ręczny wybór barw: Natychmiastowe zastosowanie",
-    rainbowFixedNotice: "Tryb tęczy o stałych barwach (wybór kolorów zablokowany)",
+    themeSyncedNotice: "Zsynchronizowano z motywem Omarchy",
+    manualColorsNotice: "Ręczny wybór barw",
+    rainbowFixedNotice: "Tryb tęczy o stałych barwach",
     brightness: "JASNOŚĆ RGB",
     devicesOverview: "URZĄDZENIA I CZUJNIKI SPRZĘTU",
     systemSensors: "Sensory Systemowe",
@@ -100,7 +100,7 @@ var I18N = {
     toastDefault: "󰄬 Ustawiono jako domyślną statystykę: ",
     toastFan: "󰄬 Zastosowano profil dla wszystkich urządzeń: ",
     toastRgb: "󰄬 Zastosowano tryb RGB: ",
-    toastColors: "󰄬 Natychmiast zastosowano kolory RGB: ",
+    toastColors: "󰄬 Zastosowano kolory RGB: ",
     toastThemeSyncOn: "󰄬 Włączono synchronizację RGB z akcentem motywu ",
     toastThemeSyncOff: "󰄬 Wyłączono synchronizację RGB (ręczny wybór barw)",
     toastErrorFan: "Błąd zmiany profilu wentylatorów",
@@ -139,20 +139,21 @@ var DEFAULT_RGB_MODES = [
   { id: "off",                 name: "Off",            labelPl: "Wyłączone (Off)",         icon: "󰏌" }
 ];
 
-// High-contrast, drastically distinct chromatic palette (guaranteed no identical white/greys)
-var DEFAULT_THEME_PALETTE = [
-  { label: "Night Cyan",  hex: "#0e7490", icon: "🌊" },
-  { label: "Neon Cyan",   hex: "#06b6d4", icon: "󰏌" },
-  { label: "Sky Blue",    hex: "#38bdf8", icon: "󰏌" },
-  { label: "Deep Blue",   hex: "#1d4ed8", icon: "󰏌" },
-  { label: "Purple",      hex: "#a855f7", icon: "󰏌" },
-  { label: "Pink",        hex: "#ec4899", icon: "󰏌" },
-  { label: "Crimson",     hex: "#ef4444", icon: "󰏌" },
-  { label: "Amber",       hex: "#f59e0b", icon: "󰏌" },
-  { label: "Orange",      hex: "#f97316", icon: "󰏌" },
-  { label: "Emerald",     hex: "#10b981", icon: "󰏌" },
-  { label: "Deep Indigo", hex: "#312e81", icon: "🌌" },
-  { label: "Muted Slate", hex: "#475569", icon: "󰏌" }
+var COLOR_PALETTES = [
+  { name: "Cyan",         hex: "#06b6d4" },
+  { name: "Sky Blue",     hex: "#38bdf8" },
+  { name: "Blue",         hex: "#2563eb" },
+  { name: "Deep Indigo",  hex: "#312e81" },
+  { name: "Purple",       hex: "#a855f7" },
+  { name: "Pink",         hex: "#ec4899" },
+  { name: "Red",          hex: "#ef4444" },
+  { name: "Orange",       hex: "#f97316" },
+  { name: "Amber",        hex: "#f59e0b" },
+  { name: "Emerald",      hex: "#10b981" },
+  { name: "Night Teal",   hex: "#0e7490" },
+  { name: "Slate",        hex: "#475569" },
+  { name: "White",        hex: "#ffffff" },
+  { name: "Off",          hex: "#000000" }
 ];
 
 function modeSupportsCustomColors(modeId) {
@@ -163,7 +164,7 @@ function modeSupportsCustomColors(modeId) {
 }
 
 function hexToRgb(hexStr) {
-  if (!hexStr) return { red: 14, green: 116, blue: 144, temperature: 0 };
+  if (!hexStr) return { red: 6, green: 182, blue: 212, temperature: 0 };
   var clean = String(hexStr).replace("#", "").trim();
   if (clean.length === 3) {
     clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
@@ -173,13 +174,13 @@ function hexToRgb(hexStr) {
     var g = parseInt(clean.substring(2, 4), 16);
     var b = parseInt(clean.substring(4, 6), 16);
     return {
-      red: isNaN(r) ? 14 : r,
-      green: isNaN(g) ? 116 : g,
-      blue: isNaN(b) ? 144 : b,
+      red: isNaN(r) ? 6 : r,
+      green: isNaN(g) ? 182 : g,
+      blue: isNaN(b) ? 212 : b,
       temperature: 0
     };
   }
-  return { red: 14, green: 116, blue: 144, temperature: 0 };
+  return { red: 6, green: 182, blue: 212, temperature: 0 };
 }
 
 function rgbToHex(r, g, b) {
@@ -190,7 +191,7 @@ function rgbToHex(r, g, b) {
 }
 
 function colorToHex(col) {
-  if (!col) return "#0e7490";
+  if (!col) return "#06b6d4";
   var s = String(col);
   if (s.indexOf("#") === 0 && s.length >= 7) return s.substring(0, 7);
   try {
@@ -199,17 +200,8 @@ function colorToHex(col) {
     var b = Math.round(col.b * 255);
     return rgbToHex(r, g, b);
   } catch (e) {
-    return "#0e7490";
+    return "#06b6d4";
   }
-}
-
-function darkenHex(hexStr, factor) {
-  var rgb = hexToRgb(hexStr);
-  var f = Math.max(0.1, Math.min(1.0, factor || 0.45));
-  var r = Math.round(rgb.red * f);
-  var g = Math.round(rgb.green * f);
-  var b = Math.round(rgb.blue * f);
-  return rgbToHex(r, g, b);
 }
 
 function isDarkColor(col) {
@@ -217,109 +209,6 @@ function isDarkColor(col) {
   var rgb = hexToRgb(colorToHex(col));
   var lum = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
   return lum < 0.5;
-}
-
-function isWhiteOrNearWhite(hexStr) {
-  if (!hexStr) return false;
-  var rgb = hexToRgb(hexStr);
-  var max = Math.max(rgb.red, rgb.green, rgb.blue);
-  var min = Math.min(rgb.red, rgb.green, rgb.blue);
-  var lum = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
-  var sat = max === 0 ? 0 : (max - min) / max;
-  return (lum > 0.60 && sat < 0.30);
-}
-
-// Adapt theme colors for RGB hardware: In dark mode, tone down brightness & convert plain white/grey to deep dark cyan & deep indigo
-function resolveAdaptedThemeColors(accentColor, warningColor, bgColor, fgColor) {
-  var isDark = isDarkColor(bgColor);
-  var rawAccentHex = colorToHex(accentColor || "#0e7490");
-  var rawSecondaryHex = colorToHex(warningColor || "#312e81");
-
-  var primaryHex = rawAccentHex;
-  var secondaryHex = rawSecondaryHex;
-
-  if (isDark) {
-    if (isWhiteOrNearWhite(rawAccentHex)) {
-      primaryHex = "#0e7490"; // Deep Dark Cyan / Night Teal (muted, non-blinding)
-    } else {
-      primaryHex = darkenHex(rawAccentHex, 0.55);
-    }
-    
-    if (isWhiteOrNearWhite(rawSecondaryHex) || secondaryHex.toLowerCase() === primaryHex.toLowerCase()) {
-      secondaryHex = "#312e81"; // Deep Indigo secondary
-    } else {
-      secondaryHex = darkenHex(rawSecondaryHex, 0.45);
-    }
-  }
-
-  return {
-    isDark: isDark,
-    primaryHex: primaryHex,
-    secondaryHex: secondaryHex
-  };
-}
-
-// Parse colors.toml and build a rich, drastically distinct palette
-function parseThemePalette(themeTomlText) {
-  var raw = {};
-  if (themeTomlText) {
-    var lines = themeTomlText.split("\n");
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (line.indexOf("=") !== -1 && line.indexOf("#") !== 0) {
-        var parts = line.split("=");
-        var k = parts[0].trim();
-        var v = parts[1].trim().replace(/['"]/g, "").trim();
-        if (v.indexOf("#") === 0) raw[k] = v;
-      }
-    }
-  }
-
-  function getSat(hexStr) {
-    var rgb = hexToRgb(hexStr);
-    var max = Math.max(rgb.red, rgb.green, rgb.blue);
-    var min = Math.min(rgb.red, rgb.green, rgb.blue);
-    return max === 0 ? 0 : (max - min) / max;
-  }
-
-  var isMonochrome = true;
-  var checkKeys = ["red", "green", "blue", "cyan", "accent", "magenta"];
-  for (var c = 0; c < checkKeys.length; c++) {
-    var val = raw[checkKeys[c]];
-    if (val && getSat(val) >= 0.25) {
-      isMonochrome = false;
-      break;
-    }
-  }
-
-  var roles = [
-    { label: "Night Cyan", key: "ambient_cyan", fallback: "#0e7490", icon: "🌊" },
-    { label: "Neon Cyan", key: "cyan", fallback: "#06b6d4", icon: "󰏌" },
-    { label: "Sky Blue", key: "blue", fallback: "#38bdf8", icon: "󰏌" },
-    { label: "Deep Blue", key: "dark_blue", fallback: "#1d4ed8", icon: "󰏌" },
-    { label: "Purple", key: "magenta", fallback: "#a855f7", icon: "󰏌" },
-    { label: "Pink", key: "bright_magenta", fallback: "#ec4899", icon: "󰏌" },
-    { label: "Crimson", key: "red", fallback: "#ef4444", icon: "󰏌" },
-    { label: "Amber", key: "yellow", fallback: "#f59e0b", icon: "󰏌" },
-    { label: "Orange", key: "orange", fallback: "#f97316", icon: "󰏌" },
-    { label: "Emerald", key: "green", fallback: "#10b981", icon: "󰏌" },
-    { label: "Deep Indigo", key: "ambient_indigo", fallback: "#312e81", icon: "🌌" },
-    { label: "Muted Slate", key: "muted", fallback: "#475569", icon: "󰏌" }
-  ];
-
-  var palette = [];
-  for (var r = 0; r < roles.length; r++) {
-    var role = roles[r];
-    var rawVal = raw[role.key];
-    var chosenHex = (rawVal && !isMonochrome && getSat(rawVal) >= 0.25) ? rawVal : role.fallback;
-    palette.push({
-      label: role.label,
-      hex: chosenHex,
-      icon: role.icon
-    });
-  }
-
-  return palette;
 }
 
 function emptyData() {
@@ -345,11 +234,10 @@ function emptyData() {
     rgbControllableDevices: [],
     fanProfiles: DEFAULT_FAN_PROFILES.slice(),
     rgbModes: DEFAULT_RGB_MODES.slice(),
-    themePalette: DEFAULT_THEME_PALETTE.slice(),
     activeFanProfile: "Quiet",
     activeRgbMode: "wave",
-    startColorHex: "#0e7490",
-    endColorHex: "#312e81",
+    startColorHex: "#06b6d4",
+    endColorHex: "#3b82f6",
     isCluster: false,
     rgbOff: false,
     brightness: 100
@@ -363,26 +251,22 @@ function parseOpenLinkHubData(rawText) {
   var devicesText = rawText;
   var tempsText = "";
   var rgbText = "";
-  var themeText = "";
 
   if (rawText.indexOf("===TEMPS===") !== -1) {
     var p1 = rawText.split("===TEMPS===");
     devicesText = p1[0].trim();
-    var rest1 = p1[1] || "";
-    if (rest1.indexOf("===RGB===") !== -1) {
-      var p2 = rest1.split("===RGB===");
+    var rest = p1[1] || "";
+    if (rest.indexOf("===RGB===") !== -1) {
+      var p2 = rest.split("===RGB===");
       tempsText = (p2[0] || "").trim();
-      var rest2 = p2[1] || "";
-      if (rest2.indexOf("===THEME===") !== -1) {
-        var p3 = rest2.split("===THEME===");
-        rgbText = (p3[0] || "").trim();
-        themeText = (p3[1] || "").trim();
-      } else {
-        rgbText = rest2.trim();
-      }
+      rgbText = (p2[1] || "").trim();
     } else {
-      tempsText = rest1.trim();
+      tempsText = rest.trim();
     }
+  } else if (rawText.indexOf("===RGB===") !== -1) {
+    var pr = rawText.split("===RGB===");
+    devicesText = pr[0].trim();
+    rgbText = (pr[1] || "").trim();
   }
 
   var json;
@@ -611,11 +495,6 @@ function parseOpenLinkHubData(rawText) {
         out.rgbModes = dynamicRgb;
       }
     } catch (e) {}
-  }
-
-  // Parse theme palette from colors.toml
-  if (themeText) {
-    out.themePalette = parseThemePalette(themeText);
   }
 
   return out;

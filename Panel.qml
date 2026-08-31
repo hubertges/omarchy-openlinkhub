@@ -16,8 +16,8 @@ Panel {
   property string displayMetric: root.setting("displayMetric", "liquid_temp")
   property string lang: root.setting("lang", "en")
   property bool themeSync: root.setting("themeSync", false)
-  property string primaryColorHex: root.setting("primaryColor", "#0e7490")
-  property string secondaryColorHex: root.setting("secondaryColor", "#312e81")
+  property string primaryColorHex: root.setting("primaryColor", "#06b6d4")
+  property string secondaryColorHex: root.setting("secondaryColor", "#3b82f6")
   property int pollInterval: root.setting("pollInterval", 2000)
 
   property bool connected: false
@@ -27,14 +27,11 @@ Panel {
 
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property string ff: root.bar ? root.bar.fontFamily : Style.font.family
+  readonly property string themeAccentHex: Model.colorToHex(Color.accent)
+  readonly property string themeSecondaryHex: Model.colorToHex(Color.warning)
 
-  // Dark-mode aware theme color resolution
-  readonly property var adaptedTheme: Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
-  readonly property string themeAccentHex: root.adaptedTheme.primaryHex
-  readonly property string themeSecondaryHex: root.adaptedTheme.secondaryHex
-
-  readonly property string activePrimaryHex: root.primaryColorHex
-  readonly property string activeSecondaryHex: root.secondaryColorHex
+  readonly property string activePrimaryHex: root.themeSync ? root.themeAccentHex : root.primaryColorHex
+  readonly property string activeSecondaryHex: root.themeSync ? root.themeSecondaryHex : root.secondaryColorHex
   readonly property string activeRgbMode: (root.rawData && root.rawData.activeRgbMode) ? root.rawData.activeRgbMode : "wave"
   readonly property bool activeModeSupportsColor: Model.modeSupportsCustomColors(root.activeRgbMode)
 
@@ -57,10 +54,6 @@ Panel {
     root.themeSync = nextSync
     saveSetting("themeSync", nextSync)
     if (nextSync) {
-      root.primaryColorHex = root.themeAccentHex
-      root.secondaryColorHex = root.themeSecondaryHex
-      saveSetting("primaryColor", root.themeAccentHex)
-      saveSetting("secondaryColor", root.themeSecondaryHex)
       root.statusMessage = Model.t("toastThemeSyncOn", root.lang) + root.themeAccentHex
       applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
     } else {
@@ -70,20 +63,25 @@ Panel {
   }
 
   function setCustomColor(isPrimary, hex) {
-    var mode = root.activeRgbMode
-    if (!Model.modeSupportsCustomColors(mode)) {
-      mode = "static"
+    var targetMode = root.activeRgbMode
+    if (!Model.modeSupportsCustomColors(targetMode)) {
+      targetMode = "static"
       if (root.rawData) root.rawData.activeRgbMode = "static"
+    }
+
+    if (root.themeSync) {
+      root.themeSync = false
+      saveSetting("themeSync", false)
     }
 
     if (isPrimary) {
       root.primaryColorHex = hex
       saveSetting("primaryColor", hex)
-      applyRgbColors(mode, hex, root.secondaryColorHex)
+      applyRgbColors(targetMode, hex, root.secondaryColorHex)
     } else {
       root.secondaryColorHex = hex
       saveSetting("secondaryColor", hex)
-      applyRgbColors(mode, root.primaryColorHex, hex)
+      applyRgbColors(targetMode, root.primaryColorHex, hex)
     }
     root.statusMessage = Model.t("toastColors", root.lang) + (isPrimary ? hex : root.primaryColorHex) + " / " + (isPrimary ? root.secondaryColorHex : hex)
   }
@@ -118,23 +116,12 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Theme color change listener ---
+  // --- Theme accent change listener ---
   Connections {
     target: Color
     function onAccentChanged() {
       if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
-        var adapted = Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
-        root.primaryColorHex = adapted.primaryHex
-        root.secondaryColorHex = adapted.secondaryHex
-        root.applyRgbColors(root.activeRgbMode, adapted.primaryHex, adapted.secondaryHex)
-      }
-    }
-    function onBackgroundChanged() {
-      if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
-        var adapted = Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
-        root.primaryColorHex = adapted.primaryHex
-        root.secondaryColorHex = adapted.secondaryHex
-        root.applyRgbColors(root.activeRgbMode, adapted.primaryHex, adapted.secondaryHex)
+        root.applyRgbColors(root.activeRgbMode, Model.colorToHex(Color.accent), Model.colorToHex(Color.warning))
       }
     }
   }
@@ -215,14 +202,21 @@ Panel {
     setRgbProc.rgbModeName = rgbMode
     if (root.rawData) root.rawData.activeRgbMode = rgbMode
 
-    var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
-
-    setRgbProc.command = ["bash", "-c", script]
-    setRgbProc.running = true
+    if (Model.modeSupportsCustomColors(rgbMode)) {
+      applyRgbColors(rgbMode, root.activePrimaryHex, root.activeSecondaryHex)
+    } else {
+      var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
+      var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      for (var i = 1; i < targets.length; i++) {
+        script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      }
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
+      setRgbProc.command = ["bash", "-c", script]
+      setRgbProc.running = true
+    }
   }
 
-  // --- Apply Custom Colors and Re-apply Active RGB Profile ---
+  // --- Apply Custom Colors via PUT /api/color/change and POST /api/color ---
   Process {
     id: setColorsProc
     onExited: function(code) {
@@ -243,7 +237,7 @@ Panel {
     var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = ""
 
-    // 1. Update color definitions for cluster and all devices via PUT /api/color/change
+    // 1. Update color configuration for cluster and all devices
     for (var i = 0; i < targets.length; i++) {
       var payload = JSON.stringify({
         deviceId: targets[i],
@@ -258,10 +252,15 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Re-apply active RGB profile directly to cluster
+    // 2. Trigger active mode reload for cluster (channel 0)
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    // 3. Global broadcast to force animation engine reload
+    // 3. Trigger active mode reload for each physical device (channel -1)
+    for (var j = 1; j < targets.length; j++) {
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    }
+
+    // 4. Global broadcast
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
@@ -299,10 +298,10 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  // --- Polling Devices & Temperatures & Cluster RGB & Theme Colors ---
+  // --- Polling Devices & Temperatures & Cluster RGB in Parallel ---
   Process {
     id: fetchProc
-    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster && echo '===THEME===' && cat ~/.local/state/omarchy/current/theme/colors.toml 2>/dev/null || true"]
+    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -565,7 +564,7 @@ Panel {
             }
           }
 
-          // ---------- Section 3: RGB Modes & Distinct Theme Palette ----------
+          // ---------- Section 3: RGB Modes, Theme Sync & Custom Colors ----------
           PanelSeparator { foreground: root.fg }
 
           Item {
@@ -620,7 +619,7 @@ Panel {
             }
           }
 
-          // ---------- RGB Distinct Theme Palette & Color Assignment ----------
+          // ---------- RGB Color Customization / Theme Sync Panel ----------
           BorderSurface {
             width: parent.width
             radius: Style.cornerRadius
@@ -652,8 +651,10 @@ Panel {
 
                 Text {
                   id: cHint
-                  text: root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : root.t("manualColorsNotice")
-                  color: Color.accent
+                  text: !root.activeModeSupportsColor
+                    ? root.t("rainbowFixedNotice")
+                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : root.t("manualColorsNotice"))
+                  color: !root.activeModeSupportsColor ? Qt.darker(root.fg, 1.5) : Color.accent
                   font.family: root.ff
                   font.pixelSize: Style.font.caption
                   font.bold: true
@@ -678,39 +679,25 @@ Panel {
 
                 Grid {
                   width: parent.width
-                  columns: 6
+                  columns: 7
                   spacing: Style.space(6)
-                  readonly property real swatchWidth: (width - (spacing * 5)) / 6
+                  readonly property real swatchWidth: (width - (spacing * 6)) / 7
 
                   Repeater {
-                    model: (root.rawData && root.rawData.themePalette && root.rawData.themePalette.length > 0)
-                      ? root.rawData.themePalette
-                      : Model.DEFAULT_THEME_PALETTE
-
+                    model: Model.COLOR_PALETTES
                     Rectangle {
                       id: pSwatch
                       required property var modelData
                       width: parent.swatchWidth
-                      height: Style.space(24)
+                      height: Style.space(22)
                       radius: Style.space(4)
                       color: modelData.hex
-                      border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : (pMouse.containsMouse ? Color.accent : Qt.darker(root.fg, 1.6))
+                      border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
                       border.width: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
 
-                      Text {
-                        anchors.centerIn: parent
-                        text: (root.activePrimaryHex.toLowerCase() === parent.modelData.hex.toLowerCase()) ? "󰄬" : ""
-                        color: Model.isDarkColor(parent.modelData.hex) ? "#ffffff" : "#000000"
-                        font.family: root.ff
-                        font.pixelSize: Style.font.caption
-                        font.bold: true
-                      }
-
                       MouseArea {
-                        id: pMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        enabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(true, pSwatch.modelData.hex)
                       }
@@ -729,39 +716,25 @@ Panel {
 
                 Grid {
                   width: parent.width
-                  columns: 6
+                  columns: 7
                   spacing: Style.space(6)
-                  readonly property real swatchWidth: (width - (spacing * 5)) / 6
+                  readonly property real swatchWidth: (width - (spacing * 6)) / 7
 
                   Repeater {
-                    model: (root.rawData && root.rawData.themePalette && root.rawData.themePalette.length > 0)
-                      ? root.rawData.themePalette
-                      : Model.DEFAULT_THEME_PALETTE
-
+                    model: Model.COLOR_PALETTES
                     Rectangle {
                       id: sSwatch
                       required property var modelData
                       width: parent.swatchWidth
-                      height: Style.space(24)
+                      height: Style.space(22)
                       radius: Style.space(4)
                       color: modelData.hex
-                      border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : (sMouse.containsMouse ? Color.accent : Qt.darker(root.fg, 1.6))
+                      border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
                       border.width: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
 
-                      Text {
-                        anchors.centerIn: parent
-                        text: (root.activeSecondaryHex.toLowerCase() === sSwatch.modelData.hex.toLowerCase()) ? "󰄬" : ""
-                        color: Model.isDarkColor(sSwatch.modelData.hex) ? "#ffffff" : "#000000"
-                        font.family: root.ff
-                        font.pixelSize: Style.font.caption
-                        font.bold: true
-                      }
-
                       MouseArea {
-                        id: sMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        enabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(false, sSwatch.modelData.hex)
                       }
