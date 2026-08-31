@@ -5,9 +5,9 @@
 
 var METRICS = [
   { id: "liquid_temp", name: "Liquid Temp", labelPl: "Ciecz (AIO)", icon: "󰌢", unit: "°C" },
-  { id: "psu_power",   name: "PSU Power",   labelPl: "Zasilacz (W)", icon: "󱐋", unit: "W" },
-  { id: "cpu_temp",    name: "CPU Temp",    labelPl: "CPU Temp",     icon: "󰍛", unit: "°C" },
-  { id: "gpu_temp",    name: "GPU Temp",    labelPl: "GPU Temp",     icon: "󰢮", unit: "°C" },
+  { id: "psu_power",   name: "PSU Power",   labelPl: "Zasilacz (PSU)", icon: "󱐋", unit: "W" },
+  { id: "cpu_temp",    name: "CPU Temp",    labelPl: "Procesor (CPU)", icon: "󰍛", unit: "°C" },
+  { id: "gpu_temp",    name: "GPU Temp",    labelPl: "Karta (GPU)",   icon: "󰢮", unit: "°C" },
   { id: "ram_temp",    name: "RAM Temp",    labelPl: "Pamięć RAM",   icon: "󰘚", unit: "°C" },
   { id: "pump_rpm",    name: "Pump Speed",  labelPl: "Pompa AIO",    icon: "󰈐", unit: "RPM" },
   { id: "fan_rpm",     name: "Max Fan RPM", labelPl: "Wentylatory",  icon: "󰠝", unit: "RPM" },
@@ -228,6 +228,45 @@ function parseOpenLinkHubData(rawText) {
   return out;
 }
 
+function getRawMetricValue(data, metricId) {
+  if (!data) return null;
+  if (metricId === "liquid_temp") return data.liquidTemp !== null && data.liquidTemp !== undefined ? data.liquidTemp : data.cpuTemp;
+  if (metricId === "psu_power") return data.psuWatts;
+  if (metricId === "cpu_temp") return data.cpuTemp;
+  if (metricId === "gpu_temp") return data.gpuTemp;
+  if (metricId === "ram_temp") return data.ramTemp;
+  if (metricId === "pump_rpm") return data.pumpRpm;
+  if (metricId === "fan_rpm") return data.maxFanRpm;
+  if (metricId === "psu_vrm_temp") return data.psuVrmTemp;
+  if (metricId === "psu_temp") return data.psuTemp;
+  return null;
+}
+
+function getMetricDisplayList(data) {
+  var list = [];
+  for (var i = 0; i < METRICS.length; i++) {
+    var m = METRICS[i];
+    var val = getRawMetricValue(data, m.id);
+    var formatted = "--";
+    if (val !== null && val !== undefined) {
+      if (m.unit === "°C") formatted = (typeof val === "number" ? val.toFixed(1) : val) + " °C";
+      else if (m.unit === "W") formatted = Math.round(val) + " W";
+      else if (m.unit === "RPM") formatted = val + " RPM";
+      else formatted = String(val);
+    }
+    list.push({
+      id: m.id,
+      name: m.name,
+      labelPl: m.labelPl,
+      icon: m.icon,
+      unit: m.unit,
+      value: val,
+      formatted: formatted
+    });
+  }
+  return list;
+}
+
 function getMetricInfo(metricId) {
   for (var i = 0; i < METRICS.length; i++) {
     if (METRICS[i].id === metricId) return METRICS[i];
@@ -251,8 +290,8 @@ function formatBarBadge(data, metricId) {
   var mId = metricId || "liquid_temp";
 
   if (mId === "liquid_temp") {
-    var lTemp = data.liquidTemp !== null ? data.liquidTemp : data.cpuTemp;
-    if (lTemp === null) return { icon: "󰌢", text: "--°", fullText: "Liquid Temp: --", label: "Ciecz", isWarning: false, isUrgent: false, raw: null };
+    var lTemp = data.liquidTemp !== null && data.liquidTemp !== undefined ? data.liquidTemp : data.cpuTemp;
+    if (lTemp === null || lTemp === undefined) return { icon: "󰌢", text: "--°", fullText: "Liquid Temp: --", label: "Ciecz", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰌢",
       text: lTemp.toFixed(1) + "°",
@@ -266,7 +305,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "psu_power") {
     var pWatts = data.psuWatts;
-    if (pWatts === null) return { icon: "󱐋", text: "--W", fullText: "PSU Power: --", label: "Zasilacz", isWarning: false, isUrgent: false, raw: null };
+    if (pWatts === null || pWatts === undefined) return { icon: "󱐋", text: "--W", fullText: "PSU Power: --", label: "Zasilacz", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󱐋",
       text: Math.round(pWatts) + "W",
@@ -280,7 +319,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "cpu_temp") {
     var cTemp = data.cpuTemp;
-    if (cTemp === null) return { icon: "󰍛", text: "--°", fullText: "CPU Temp: --", label: "CPU", isWarning: false, isUrgent: false, raw: null };
+    if (cTemp === null || cTemp === undefined) return { icon: "󰍛", text: "--°", fullText: "CPU Temp: --", label: "CPU", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰍛",
       text: Math.round(cTemp) + "°",
@@ -294,7 +333,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "gpu_temp") {
     var gTemp = data.gpuTemp;
-    if (gTemp === null) return { icon: "󰢮", text: "--°", fullText: "GPU Temp: --", label: "GPU", isWarning: false, isUrgent: false, raw: null };
+    if (gTemp === null || gTemp === undefined) return { icon: "󰢮", text: "--°", fullText: "GPU Temp: --", label: "GPU", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰢮",
       text: Math.round(gTemp) + "°",
@@ -308,7 +347,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "ram_temp") {
     var rTemp = data.ramTemp;
-    if (rTemp === null) return { icon: "󰘚", text: "--°", fullText: "RAM Temp: --", label: "RAM", isWarning: false, isUrgent: false, raw: null };
+    if (rTemp === null || rTemp === undefined) return { icon: "󰘚", text: "--°", fullText: "RAM Temp: --", label: "RAM", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰘚",
       text: rTemp.toFixed(1) + "°",
@@ -322,7 +361,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "pump_rpm") {
     var pRpm = data.pumpRpm;
-    if (pRpm === null) return { icon: "󰈐", text: "--", fullText: "Pompa: -- RPM", label: "Pompa", isWarning: false, isUrgent: false, raw: null };
+    if (pRpm === null || pRpm === undefined) return { icon: "󰈐", text: "--", fullText: "Pompa: -- RPM", label: "Pompa", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰈐",
       text: String(pRpm),
@@ -336,7 +375,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "fan_rpm") {
     var fRpm = data.maxFanRpm;
-    if (fRpm === null) return { icon: "󰠝", text: "--", fullText: "Wentylatory: -- RPM", label: "Wentylator", isWarning: false, isUrgent: false, raw: null };
+    if (fRpm === null || fRpm === undefined) return { icon: "󰠝", text: "--", fullText: "Wentylatory: -- RPM", label: "Wentylator", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰠝",
       text: String(fRpm),
@@ -350,7 +389,7 @@ function formatBarBadge(data, metricId) {
 
   if (mId === "psu_vrm_temp") {
     var vTemp = data.psuVrmTemp;
-    if (vTemp === null) return { icon: "󰏈", text: "--°", fullText: "PSU VRM: --", label: "PSU VRM", isWarning: false, isUrgent: false, raw: null };
+    if (vTemp === null || vTemp === undefined) return { icon: "󰏈", text: "--°", fullText: "PSU VRM: --", label: "PSU VRM", isWarning: false, isUrgent: false, raw: null };
     return {
       icon: "󰏈",
       text: vTemp.toFixed(1) + "°",
@@ -378,22 +417,23 @@ function cycleNextMetric(currentId) {
 
 function formatTooltip(data, currentMetricId) {
   if (!data || !data.connected) {
-    return "OpenLinkHub: Offline (nie połączono z http://localhost:27003)";
+    return "OpenLinkHub: Offline (połączono z http://localhost:27003)\nKliknij, aby odświeżyć.";
   }
 
-  var lines = ["OpenLinkHub · Status sprzętu:"];
-  if (data.liquidTemp !== null) lines.push("• Temperatura cieczy: " + data.liquidTemp.toFixed(1) + "°C (" + (data.liquidName || "AIO") + ")");
-  if (data.pumpRpm !== null) lines.push("• Obroty pompy: " + data.pumpRpm + " RPM");
-  if (data.psuWatts !== null) lines.push("• Pobór mocy (PSU): " + Math.round(data.psuWatts) + " W (" + (data.psuName || "Zasilacz") + ")");
-  if (data.cpuTemp !== null) lines.push("• CPU: " + data.cpuTemp.toFixed(1) + "°C");
-  if (data.gpuTemp !== null) lines.push("• GPU: " + data.gpuTemp.toFixed(1) + "°C");
-  if (data.ramTemp !== null) lines.push("• Pamięć RAM: " + data.ramTemp.toFixed(1) + "°C");
-  lines.push("• Profil wentylatorów: " + (data.activeFanProfile || "Quiet"));
+  var lines = ["OpenLinkHub · Wszystkie parametry:"];
+  if (data.liquidTemp !== null && data.liquidTemp !== undefined) lines.push("• Temperatura cieczy: " + data.liquidTemp.toFixed(1) + "°C (" + (data.liquidName || "AIO") + ")");
+  if (data.pumpRpm !== null && data.pumpRpm !== undefined) lines.push("• Obroty pompy: " + data.pumpRpm + " RPM");
+  if (data.psuWatts !== null && data.psuWatts !== undefined) lines.push("• Pobór mocy (PSU): " + Math.round(data.psuWatts) + " W (" + (data.psuName || "Zasilacz") + ")");
+  if (data.cpuTemp !== null && data.cpuTemp !== undefined) lines.push("• CPU: " + data.cpuTemp.toFixed(1) + "°C");
+  if (data.gpuTemp !== null && data.gpuTemp !== undefined) lines.push("• GPU: " + data.gpuTemp.toFixed(1) + "°C");
+  if (data.ramTemp !== null && data.ramTemp !== undefined) lines.push("• RAM: " + data.ramTemp.toFixed(1) + "°C");
+  if (data.maxFanRpm !== null && data.maxFanRpm !== undefined) lines.push("• Wentylatory: do " + data.maxFanRpm + " RPM (" + (data.activeFanProfile || "Quiet") + ")");
   lines.push("• Tryb RGB: " + (data.activeRgbMode || "wave"));
   lines.push("");
-  lines.push("Kliknij lewym: Otwórz panel sterowania");
-  lines.push("Kliknij prawym: Zmień wyświetlany status na pasku");
-  lines.push("Kliknij środkowym: Odśwież dane");
+  lines.push("Lewy klik: Otwórz panel sterowania");
+  lines.push("Prawy klik: Przełącz statystykę na pasku");
+  lines.push("Środkowy klik: Odśwież dane");
+  lines.push("W panelu: Podwójny klik na statystykę = domyślna na pasku");
 
   return lines.join("\n");
 }

@@ -22,6 +22,7 @@ Panel {
 
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property string ff: root.bar ? root.bar.fontFamily : Style.font.family
+  readonly property string badgeText: (root.data && root.data.connected) ? (root.badge.icon + " " + root.badge.text) : "󰌢 !"
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -35,15 +36,15 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  // --- Fetch Hardware Data ---
+  // --- Fetch Hardware Data (-L follows redirects, /api/devices/) ---
   Process {
     id: fetchProc
-    command: ["curl", "-fsS", "--max-time", "2", root.apiUrl + "/api/devices"]
+    command: ["curl", "-fsSL", "--max-time", "2", root.apiUrl + "/api/devices/"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         var raw = String(text || "").trim()
-        if (!raw) {
+        if (!raw || raw.indexOf("{") !== 0) {
           root.data = Model.emptyData()
           root.badge = Model.formatBarBadge(root.data, root.displayMetric)
           return
@@ -66,7 +67,7 @@ Panel {
     onExited: function(code) {
       root.isBusy = false
       if (code === 0) {
-        root.statusMessage = "Zastosowano profil: " + profileName
+        root.statusMessage = "Zastosowano profil wentylatorów: " + profileName
         root.refresh()
       } else {
         root.statusMessage = "Błąd zmiany profilu wentylatorów"
@@ -78,15 +79,15 @@ Panel {
     if (setFanProc.running) return
     root.isBusy = true
     setFanProc.profileName = profileName
-    root.data.activeFanProfile = profileName
+    if (root.data) root.data.activeFanProfile = profileName
 
-    var devices = root.data.fanControllableDevices.length > 0
+    var devices = (root.data && root.data.fanControllableDevices && root.data.fanControllableDevices.length > 0)
       ? root.data.fanControllableDevices
       : ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
     var script = ""
     for (var i = 0; i < devices.length; i++) {
       var payload = JSON.stringify({ deviceId: devices[i], channelId: -1, profile: profileName })
-      script += "curl -s -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/speed >/dev/null 2>&1; "
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/speed >/dev/null 2>&1; "
     }
     setFanProc.command = ["bash", "-c", script]
     setFanProc.running = true
@@ -111,17 +112,17 @@ Panel {
     if (setRgbProc.running) return
     root.isBusy = true
     setRgbProc.rgbModeName = rgbMode
-    root.data.activeRgbMode = rgbMode
+    if (root.data) root.data.activeRgbMode = rgbMode
 
     var clusterPayload = JSON.stringify({ deviceId: "cluster", channelId: 0, profile: rgbMode })
-    var script = "curl -s -X POST -H 'Content-Type: application/json' -d '" + clusterPayload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + clusterPayload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    var devices = root.data.rgbControllableDevices.length > 0
+    var devices = (root.data && root.data.rgbControllableDevices && root.data.rgbControllableDevices.length > 0)
       ? root.data.rgbControllableDevices
       : ["62605BBB76606751B331EACF1C495170", "i2c11"]
     for (var i = 0; i < devices.length; i++) {
       var payload = JSON.stringify({ deviceId: devices[i], channelId: -1, profile: rgbMode })
-      script += "curl -s -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
     }
     setRgbProc.command = ["bash", "-c", script]
     setRgbProc.running = true
@@ -137,21 +138,22 @@ Panel {
 
   function applyBrightness(level) {
     var b = Math.max(0, Math.min(100, Math.round(level)))
-    root.data.brightness = b
+    if (root.data) root.data.brightness = b
     var devices = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
     var script = ""
     for (var i = 0; i < devices.length; i++) {
       var payload = JSON.stringify({ deviceId: devices[i], brightness: b })
-      script += "curl -s -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/brightness/gradual >/dev/null 2>&1; "
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/brightness/gradual >/dev/null 2>&1; "
     }
     setBrightnessProc.command = ["bash", "-c", script]
     setBrightnessProc.running = true
   }
 
-  // --- Settings Persistence ---
-  function setDisplayMetric(metricId) {
+  // --- Settings Persistence & Default Metric ---
+  function setDefaultMetric(metricId) {
     root.displayMetric = metricId
     root.badge = Model.formatBarBadge(root.data, metricId)
+    root.statusMessage = "󰄬 Ustawiono jako domyślną statystykę paska: " + root.badge.label + " (" + root.badge.text + ")"
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
       var entry = {}
       var cur = root.bar.shell.entryFor(root.moduleName) || {}
@@ -163,20 +165,24 @@ Panel {
 
   function cycleMetric() {
     var next = Model.cycleNextMetric(root.displayMetric)
-    setDisplayMetric(next)
+    setDefaultMetric(next)
   }
 
   function openWebUi() {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Bar Button ---
-  BarIconButton {
+  // --- Bar Button on Right Section ---
+  WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.data.connected ? (root.badge.icon + " " + root.badge.text) : "󰌢 !"
-    slotSize: Style.bar.iconSlot * 2.4
+    text: root.badgeText
+    labelVisible: true
+    hasVisualContent: true
+    horizontalMargin: 8.5
+    verticalPadding: 6
+    fontSize: Style.font.bodySmall
     active: root.badge.isUrgent
     useActiveColor: true
     activeColor: Color.urgent
@@ -200,7 +206,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(440))
+    contentWidth: panel.fittedContentWidth(Style.space(450))
     contentHeight: panel.fittedContentHeight(scrollColumn.implicitHeight, Style.space(660))
 
     PanelKeyCatcher {
@@ -219,7 +225,7 @@ Panel {
       Flickable {
         anchors.fill: parent
         contentWidth: width
-        contentHeight: scrollColumn.implicitHeight + Style.space(16)
+        contentHeight: scrollColumn.implicitHeight + Style.space(20)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -231,9 +237,9 @@ Panel {
           // ---------- Hero: Primary Sensor & Connection ----------
           PanelHero {
             width: parent.width
-            title: root.data.connected ? root.badge.fullText : "OpenLinkHub Offline"
-            meta: root.data.connected
-              ? ("Połączono · " + (root.data.liquidName || "iCUE LINK H150i") + " · " + (root.data.psuName || "RM850i"))
+            title: root.data && root.data.connected ? root.badge.fullText : "OpenLinkHub Offline"
+            meta: root.data && root.data.connected
+              ? ("Domyślna: " + root.badge.label + " · " + (root.data.liquidName || "iCUE LINK H150i"))
               : "Brak połączenia z " + root.apiUrl
             foreground: root.badge.isUrgent ? Color.urgent : (root.badge.isWarning ? Color.warning : Color.accent)
             fontFamily: root.ff
@@ -271,51 +277,74 @@ Panel {
             }
           }
 
-          // ---------- Status Message / Feedback ----------
-          Text {
+          // ---------- Status Toast Feedback ----------
+          Rectangle {
             visible: root.statusMessage !== ""
-            text: root.statusMessage
-            color: Color.accent
-            font.family: root.ff
-            font.pixelSize: Style.font.caption
-            font.bold: true
-            horizontalAlignment: Text.AlignHCenter
             width: parent.width
+            height: statusTxt.implicitHeight + Style.space(10)
+            radius: Style.cornerRadius
+            color: Style.hoverFillFor(root.fg, Color.accent)
+
+            Text {
+              id: statusTxt
+              anchors.centerIn: parent
+              text: root.statusMessage
+              color: Color.accent
+              font.family: root.ff
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
           }
 
-          // ---------- Section 1: Wyświetlany Status (Bar Metric) ----------
+          // ---------- Section 1: Wszystkie Statystyki (Podwójny Klik = Domyślna) ----------
           PanelSeparator { foreground: root.fg }
 
           Column {
             width: parent.width
             spacing: Style.space(8)
 
-            PanelSectionHeader {
-              text: "STATUS NA PASKU (BAR METRIC)"
-              foreground: root.fg
-              fontFamily: root.ff
+            Item {
+              width: parent.width
+              implicitHeight: Math.max(sec1Hdr.implicitHeight, sec1Hint.implicitHeight)
+
+              PanelSectionHeader {
+                id: sec1Hdr
+                text: "WSZYSTKIE STATYSTYKI SPRZĘTU"
+                foreground: root.fg
+                fontFamily: root.ff
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Text {
+                id: sec1Hint
+                text: "PODWÓJNY KLIK = NA PASEK"
+                color: Color.accent
+                font.family: root.ff
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+              }
             }
 
             Grid {
               width: parent.width
               columns: 2
-              spacing: Style.space(6)
+              spacing: Style.space(8)
 
               readonly property real cellWidth: (width - spacing) / 2
 
               Repeater {
-                model: Model.METRICS
+                model: Model.getMetricDisplayList(root.data)
 
-                Button {
+                MetricCardTile {
                   required property var modelData
                   width: parent.cellWidth
-                  text: modelData.icon + "  " + modelData.labelPl
-                  fontFamily: root.ff
-                  fontSize: Style.font.caption
-                  bordered: true
-                  selected: root.displayMetric === modelData.id
-                  active: root.displayMetric === modelData.id
-                  onClicked: root.setDisplayMetric(modelData.id)
+                  metricItem: modelData
+                  isDefault: root.displayMetric === modelData.id
+                  onClicked: root.setDefaultMetric(modelData.id)
+                  onDoubleClicked: root.setDefaultMetric(modelData.id)
                 }
               }
             }
@@ -343,7 +372,7 @@ Panel {
 
               Text {
                 id: activeFanText
-                text: "AKTYWNY: " + (root.data.activeFanProfile || "Quiet").toUpperCase()
+                text: "AKTYWNY: " + ((root.data && root.data.activeFanProfile) ? root.data.activeFanProfile : "Quiet").toUpperCase()
                 color: Color.accent
                 font.family: root.ff
                 font.pixelSize: Style.font.caption
@@ -372,8 +401,8 @@ Panel {
                   fontFamily: root.ff
                   fontSize: Style.font.caption
                   bordered: true
-                  selected: (root.data.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase()
-                  active: (root.data.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase()
+                  selected: (root.data && (root.data.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase())
+                  active: (root.data && (root.data.activeFanProfile || "").toLowerCase() === modelData.id.toLowerCase())
                   onClicked: root.applyFanProfile(modelData.id)
                 }
               }
@@ -402,7 +431,7 @@ Panel {
 
               Text {
                 id: activeRgbText
-                text: "TRYB: " + (root.data.activeRgbMode || "wave").toUpperCase()
+                text: "TRYB: " + ((root.data && root.data.activeRgbMode) ? root.data.activeRgbMode : "wave").toUpperCase()
                 color: Color.accent
                 font.family: root.ff
                 font.pixelSize: Style.font.caption
@@ -430,8 +459,8 @@ Panel {
                   fontFamily: root.ff
                   fontSize: Style.font.caption
                   bordered: true
-                  selected: (root.data.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase()
-                  active: (root.data.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase()
+                  selected: (root.data && (root.data.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
+                  active: (root.data && (root.data.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
                   onClicked: root.applyRgbMode(modelData.id)
                 }
               }
@@ -456,7 +485,7 @@ Panel {
 
               Text {
                 id: brightVal
-                text: root.data.brightness + "%"
+                text: ((root.data && root.data.brightness !== undefined) ? root.data.brightness : 100) + "%"
                 color: root.fg
                 font.family: root.ff
                 font.pixelSize: Style.font.caption
@@ -479,7 +508,7 @@ Panel {
             }
           }
 
-          // ---------- Section 4: Szczegóły Sprzętu (Hardware Status) ----------
+          // ---------- Section 4: Szczegóły Sprzętu (Hardware Breakdown) ----------
           PanelSeparator { foreground: root.fg }
 
           Column {
@@ -487,7 +516,7 @@ Panel {
             spacing: Style.space(8)
 
             PanelSectionHeader {
-              text: "STATUS SPRZĘTU (HARDWARE)"
+              text: "SZCZEGÓŁOWY STAN SPRZĘTU"
               foreground: root.fg
               fontFamily: root.ff
             }
@@ -497,6 +526,7 @@ Panel {
               width: parent.width
               title: "CHŁODZENIE CIECZĄ (AIO)"
               icon: "󰌢"
+              onDoubleClicked: root.setDefaultMetric("liquid_temp")
               rows: [
                 { label: "Temperatura cieczy", value: root.data && root.data.liquidTemp !== null && root.data.liquidTemp !== undefined ? (root.data.liquidTemp + " °C") : "--" },
                 { label: "Obroty pompy", value: root.data && root.data.pumpRpm !== null && root.data.pumpRpm !== undefined ? (root.data.pumpRpm + " RPM") : "--" },
@@ -509,6 +539,7 @@ Panel {
               width: parent.width
               title: "ZASILACZ (PSU · " + ((root.data && root.data.psuName) || "RM850i") + ")"
               icon: "󱐋"
+              onDoubleClicked: root.setDefaultMetric("psu_power")
               rows: [
                 { label: "Łączna moc (Power Out)", value: root.data && root.data.psuWatts !== null && root.data.psuWatts !== undefined ? (root.data.psuWatts + " W") : "--" },
                 { label: "Linia 12V", value: root.data && root.data.psuRails && root.data.psuRails["12V Rail"] ? (root.data.psuRails["12V Rail"].watts + "W (" + root.data.psuRails["12V Rail"].volts + "V / " + root.data.psuRails["12V Rail"].amps + "A)") : "--" },
@@ -522,6 +553,7 @@ Panel {
               width: parent.width
               title: "TEMPERATURY PODZESPOŁÓW"
               icon: "󰍛"
+              onDoubleClicked: root.setDefaultMetric("cpu_temp")
               rows: [
                 { label: "Procesor (CPU)", value: root.data && root.data.cpuTemp !== null && root.data.cpuTemp !== undefined ? (root.data.cpuTemp + " °C") : "--" },
                 { label: "Karta graficzna (GPU)", value: root.data && root.data.gpuTemp !== null && root.data.gpuTemp !== undefined ? (root.data.gpuTemp + " °C") : "--" },
@@ -534,6 +566,7 @@ Panel {
               width: parent.width
               title: "WENTYLATORY (" + (root.data && root.data.fans ? root.data.fans.length : 0) + " SZT.)"
               icon: "󰠝"
+              onDoubleClicked: root.setDefaultMetric("fan_rpm")
               rows: root.getFanRows()
             }
           }
@@ -562,16 +595,88 @@ Panel {
     return list
   }
 
+  // --- Subcomponent: MetricCardTile ---
+  component MetricCardTile: BorderSurface {
+    id: tile
+    property var metricItem: null
+    property bool isDefault: false
+    signal clicked()
+    signal doubleClicked()
+
+    height: Style.space(56)
+    radius: Style.cornerRadius
+    color: isDefault ? Style.selectedFillFor(root.fg, Color.accent) : Style.controlFill(false, tileMouse.containsMouse, root.fg, Color.accent)
+    borderSpec: isDefault ? Border.controlSpec("focus", root.fg, Color.accent) : Border.controlSpec(tileMouse.containsMouse ? "hover-cursor" : "normal", root.fg, Color.accent)
+
+    Item {
+      anchors.fill: parent
+      anchors.margins: Style.space(8)
+
+      Row {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        spacing: Style.space(6)
+
+        Text {
+          text: tile.metricItem ? tile.metricItem.icon : ""
+          color: tile.isDefault ? Color.accent : root.fg
+          font.family: root.ff
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+        }
+
+        Text {
+          text: tile.metricItem ? tile.metricItem.labelPl : ""
+          color: tile.isDefault ? Color.accent : Qt.darker(root.fg, 1.3)
+          font.family: root.ff
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+      }
+
+      Text {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        visible: tile.isDefault
+        text: "󰄬 PASEK"
+        color: Color.accent
+        font.family: root.ff
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+
+      Text {
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        text: tile.metricItem ? tile.metricItem.formatted : "--"
+        color: tile.isDefault ? Color.accent : root.fg
+        font.family: root.ff
+        font.pixelSize: Style.font.body
+        font.bold: true
+      }
+    }
+
+    MouseArea {
+      id: tileMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: tile.clicked()
+      onDoubleClicked: tile.doubleClicked()
+    }
+  }
+
   // --- Subcomponent: InfoCard ---
   component InfoCard: BorderSurface {
     id: card
     property string title: ""
     property string icon: ""
     property var rows: []
+    signal doubleClicked()
 
     width: parent.width
     radius: Style.cornerRadius
-    color: Style.controlFill(false, false, root.fg, Color.accent)
+    color: Style.controlFill(false, cardMouse.containsMouse, root.fg, Color.accent)
     implicitHeight: cardCol.implicitHeight + Style.space(16)
 
     Column {
@@ -631,6 +736,14 @@ Panel {
           }
         }
       }
+    }
+
+    MouseArea {
+      id: cardMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onDoubleClicked: card.doubleClicked()
     }
   }
 }
