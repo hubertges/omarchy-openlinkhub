@@ -27,8 +27,11 @@ Panel {
 
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property string ff: root.bar ? root.bar.fontFamily : Style.font.family
-  readonly property string themeAccentHex: Model.colorToHex(Color.accent)
-  readonly property string themeSecondaryHex: Model.colorToHex(Color.warning)
+
+  // Dark-mode aware theme color resolution
+  readonly property var adaptedTheme: Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
+  readonly property string themeAccentHex: root.adaptedTheme.primaryHex
+  readonly property string themeSecondaryHex: root.adaptedTheme.secondaryHex
 
   readonly property string activePrimaryHex: root.themeSync ? root.themeAccentHex : root.primaryColorHex
   readonly property string activeSecondaryHex: root.themeSync ? root.themeSecondaryHex : root.secondaryColorHex
@@ -106,12 +109,19 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Theme accent change listener ---
+  // --- Theme color change listener ---
   Connections {
     target: Color
     function onAccentChanged() {
       if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
-        root.applyRgbColors(root.activeRgbMode, Model.colorToHex(Color.accent), Model.colorToHex(Color.warning))
+        var adapted = Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
+        root.applyRgbColors(root.activeRgbMode, adapted.primaryHex, adapted.secondaryHex)
+      }
+    }
+    function onBackgroundChanged() {
+      if (root.themeSync && Model.modeSupportsCustomColors(root.activeRgbMode)) {
+        var adapted = Model.resolveAdaptedThemeColors(Color.accent, Color.warning, Color.background, Color.foreground)
+        root.applyRgbColors(root.activeRgbMode, adapted.primaryHex, adapted.secondaryHex)
       }
     }
   }
@@ -196,7 +206,8 @@ Panel {
       applyRgbColors(rgbMode, root.activePrimaryHex, root.activeSecondaryHex)
     } else {
       var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
-      var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
       for (var i = 1; i < targets.length; i++) {
         script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
       }
@@ -205,7 +216,7 @@ Panel {
     }
   }
 
-  // --- Apply Custom Colors via PUT /api/color/change and POST /api/color ---
+  // --- Apply Custom Colors with Immediate Hardware Re-render ---
   Process {
     id: setColorsProc
     onExited: function(code) {
@@ -222,7 +233,7 @@ Panel {
     var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     var script = ""
 
-    // 1. Update color configuration for cluster and all devices
+    // 1. Update color definitions for cluster and all devices via PUT /api/color/change
     for (var i = 0; i < targets.length; i++) {
       var payload = JSON.stringify({
         deviceId: targets[i],
@@ -237,10 +248,13 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Trigger active mode reload for cluster (channel 0)
+    // 2. Global immediate broadcast to force animation engine reload
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
+
+    // 3. Cluster reload
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    // 3. Trigger active mode reload for each physical device (channel -1)
+    // 4. Per-device broadcast
     for (var j = 1; j < targets.length; j++) {
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
     }
@@ -636,7 +650,7 @@ Panel {
                   id: cHint
                   text: !root.activeModeSupportsColor
                     ? root.t("rainbowFixedNotice")
-                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : "Ręczny wybór barw")
+                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : root.t("manualColorsNotice"))
                   color: !root.activeModeSupportsColor ? Qt.darker(root.fg, 1.5) : Color.accent
                   font.family: root.ff
                   font.pixelSize: Style.font.caption
@@ -836,7 +850,7 @@ Panel {
 
               Text {
                 text: sensorRow.modelData.icon
-                color: sensorRow.isCurrent ? Color.accent : root.fg
+                color: sensorRow.isCurrent ? Color.accent : (sensorRow.modelData.icon === "󰖔" ? "#38bdf8" : root.fg)
                 font.family: root.ff
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true

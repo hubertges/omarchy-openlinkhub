@@ -1,7 +1,7 @@
 .pragma library
 
 // OpenLinkHub Model & Helper Utilities for Omarchy shell plugin
-// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes & color sync.
+// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes & color sync with dark theme adaptation.
 
 var I18N = {
   en: {
@@ -22,7 +22,8 @@ var I18N = {
     rgbColors: "RGB COLORS",
     primaryColor: "Primary Color",
     secondaryColor: "Secondary Color",
-    themeSyncedNotice: "Colors automatically synced with Omarchy theme accent",
+    themeSyncedNotice: "Synced with Omarchy theme (Dark-mode adapted)",
+    manualColorsNotice: "Manual color selection",
     rainbowFixedNotice: "Mode uses fixed rainbow colors (color customization disabled)",
     brightness: "RGB BRIGHTNESS",
     devicesOverview: "HARDWARE DEVICES & SENSORS",
@@ -73,7 +74,8 @@ var I18N = {
     rgbColors: "KOLORY RGB",
     primaryColor: "Kolor główny",
     secondaryColor: "Kolor pomocniczy",
-    themeSyncedNotice: "Kolory synchronizowane automatycznie z akcentem motywu Omarchy",
+    themeSyncedNotice: "Dopasowano automatycznie do motywu (Tryb ciemny)",
+    manualColorsNotice: "Ręczny wybór barw",
     rainbowFixedNotice: "Tryb tęczy o stałych barwach (wybór kolorów zablokowany)",
     brightness: "JASNOŚĆ RGB",
     devicesOverview: "URZĄDZENIA I CZUJNIKI SPRZĘTU",
@@ -139,7 +141,9 @@ var DEFAULT_RGB_MODES = [
 
 var COLOR_PALETTES = [
   { name: "Cyan",    hex: "#06b6d4" },
+  { name: "Ice Blue",hex: "#38bdf8" },
   { name: "Blue",    hex: "#3b82f6" },
+  { name: "Indigo",  hex: "#6366f1" },
   { name: "Purple",  hex: "#a855f7" },
   { name: "Pink",    hex: "#ec4899" },
   { name: "Red",     hex: "#ef4444" },
@@ -196,6 +200,48 @@ function colorToHex(col) {
   } catch (e) {
     return "#06b6d4";
   }
+}
+
+function isDarkColor(col) {
+  if (!col) return true;
+  var rgb = hexToRgb(colorToHex(col));
+  var lum = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
+  return lum < 0.5;
+}
+
+function isWhiteOrNearWhite(hexStr) {
+  if (!hexStr) return false;
+  var rgb = hexToRgb(hexStr);
+  var max = Math.max(rgb.red, rgb.green, rgb.blue);
+  var min = Math.min(rgb.red, rgb.green, rgb.blue);
+  var lum = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
+  var sat = max === 0 ? 0 : (max - min) / max;
+  return (lum > 0.65 && sat < 0.25);
+}
+
+// Adapt theme colors for RGB hardware: In dark mode, if colors are plain white/grey, adapt to ice cyan & indigo
+function resolveAdaptedThemeColors(accentColor, warningColor, bgColor, fgColor) {
+  var isDark = isDarkColor(bgColor);
+  var rawAccentHex = colorToHex(accentColor || "#06b6d4");
+  var rawSecondaryHex = colorToHex(warningColor || "#3b82f6");
+
+  var primaryHex = rawAccentHex;
+  var secondaryHex = rawSecondaryHex;
+
+  if (isDark) {
+    if (isWhiteOrNearWhite(rawAccentHex)) {
+      primaryHex = "#38bdf8"; // Ice Cyan accent for dark theme
+    }
+    if (isWhiteOrNearWhite(rawSecondaryHex) || secondaryHex.toLowerCase() === primaryHex.toLowerCase()) {
+      secondaryHex = "#818cf8"; // Indigo secondary for dark theme
+    }
+  }
+
+  return {
+    isDark: isDark,
+    primaryHex: primaryHex,
+    secondaryHex: secondaryHex
+  };
 }
 
 function emptyData() {

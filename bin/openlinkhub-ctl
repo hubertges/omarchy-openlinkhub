@@ -311,7 +311,7 @@ def cmd_colors(args):
     p1 = hex_to_rgb(args.primary)
     p2 = hex_to_rgb(args.secondary if args.secondary else args.primary)
     
-    targets = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
+    targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
     for t in targets:
         payload = {
             "deviceId": t,
@@ -325,8 +325,11 @@ def cmd_colors(args):
         }
         api_post("/api/color/change", payload, args.api_url, method="PUT")
         
+    api_post("/api/color/global", {"profile": mode}, args.api_url)
     api_post("/api/color", {"deviceId": "cluster", "channelId": 0, "profile": mode}, args.api_url)
-    print(f"Successfully set RGB colors for '{mode}' to {args.primary} / {args.secondary or args.primary}.")
+    for t in targets[1:]:
+        api_post("/api/color", {"deviceId": t, "channelId": -1, "profile": mode}, args.api_url)
+    print(f"Successfully set RGB colors for '{mode}' to {args.primary} / {args.secondary or args.primary} with immediate reload.")
 
 def cmd_brightness(args):
     try:
