@@ -1,7 +1,7 @@
 .pragma library
 
 // OpenLinkHub Model & Helper Utilities for Omarchy shell plugin
-// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles & RGB presets.
+// Handles API parsing, multi-language i18n, device sensor consolidation, dynamic fan profiles, dynamic RGB cluster modes & color sync.
 
 var I18N = {
   en: {
@@ -11,12 +11,19 @@ var I18N = {
     defaultOnBar: "BAR",
     setAsDefault: "Click to set as bar metric",
     webUi: "󰖟 Open Web UI",
-    refresh: "󰑐 Refresh (R)",
+    themeSync: "Theme Sync",
+    themeSyncOn: "Theme Sync (ON)",
+    themeSyncOff: "Theme Sync (OFF)",
     fanProfiles: "FAN SPEED PROFILES",
     activeProfile: "ACTIVE",
     noProfiles: "No speed profiles found",
     rgbModes: "RGB LIGHTING MODES",
     activeMode: "MODE",
+    rgbColors: "RGB COLORS",
+    primaryColor: "Primary Color",
+    secondaryColor: "Secondary Color",
+    themeSyncedNotice: "Colors automatically synced with Omarchy theme accent",
+    rainbowFixedNotice: "Mode uses fixed rainbow colors (color customization disabled)",
     brightness: "RGB BRIGHTNESS",
     devicesOverview: "HARDWARE DEVICES & SENSORS",
     systemSensors: "System Sensors",
@@ -40,6 +47,9 @@ var I18N = {
     toastDefault: "󰄬 Set as default bar metric: ",
     toastFan: "󰄬 Applied fan profile across all devices: ",
     toastRgb: "󰄬 Applied RGB mode: ",
+    toastColors: "󰄬 Applied RGB colors: ",
+    toastThemeSyncOn: "󰄬 Enabled RGB Theme Sync with ",
+    toastThemeSyncOff: "󰄬 Disabled RGB Theme Sync (manual color control enabled)",
     toastErrorFan: "Error applying fan profile",
     toastErrorRgb: "Error applying RGB mode",
     tooltipTitle: "OpenLinkHub Hardware Monitor",
@@ -52,12 +62,19 @@ var I18N = {
     defaultOnBar: "PASEK",
     setAsDefault: "Kliknij, aby ustawić na pasku",
     webUi: "󰖟 Otwórz Web UI",
-    refresh: "󰑐 Odśwież (R)",
+    themeSync: "Sync z motywem",
+    themeSyncOn: "Sync z motywem (WŁ)",
+    themeSyncOff: "Sync z motywem (WYŁ)",
     fanProfiles: "PROFILE PRĘDKOŚCI WENTYLATORÓW",
     activeProfile: "AKTYWNY",
     noProfiles: "Brak zdefiniowanych profili",
     rgbModes: "TRYBY OŚWIETLENIA (RGB)",
     activeMode: "TRYB",
+    rgbColors: "KOLORY RGB",
+    primaryColor: "Kolor główny",
+    secondaryColor: "Kolor pomocniczy",
+    themeSyncedNotice: "Kolory synchronizowane automatycznie z akcentem motywu Omarchy",
+    rainbowFixedNotice: "Tryb tęczy o stałych barwach (wybór kolorów zablokowany)",
     brightness: "JASNOŚĆ RGB",
     devicesOverview: "URZĄDZENIA I CZUJNIKI SPRZĘTU",
     systemSensors: "Sensory Systemowe",
@@ -81,6 +98,9 @@ var I18N = {
     toastDefault: "󰄬 Ustawiono jako domyślną statystykę: ",
     toastFan: "󰄬 Zastosowano profil dla wszystkich urządzeń: ",
     toastRgb: "󰄬 Zastosowano tryb RGB: ",
+    toastColors: "󰄬 Zastosowano kolory RGB: ",
+    toastThemeSyncOn: "󰄬 Włączono synchronizację RGB z akcentem motywu ",
+    toastThemeSyncOff: "󰄬 Wyłączono synchronizację RGB (ręczny wybór barw)",
     toastErrorFan: "Błąd zmiany profilu wentylatorów",
     toastErrorRgb: "Błąd zmiany trybu RGB",
     tooltipTitle: "OpenLinkHub · Stan sprzętu",
@@ -100,22 +120,83 @@ var DEFAULT_FAN_PROFILES = [
   { id: "Performance", name: "Performance", labelPl: "Wydajny (Performance)",  icon: "󰠝" }
 ];
 
-var RGB_MODES = [
+var DEFAULT_RGB_MODES = [
   { id: "wave",                name: "Wave",           labelPl: "Fala (Wave)",             icon: "󰏌" },
   { id: "rainbow",             name: "Rainbow",        labelPl: "Tęcza (Rainbow)",         icon: "󰏌" },
   { id: "spiralrainbow",       name: "Spiral Rainbow", labelPl: "Spirala (Spiral)",        icon: "󰏌" },
   { id: "colorpulse",          name: "Color Pulse",    labelPl: "Puls (Color Pulse)",      icon: "󰏌" },
   { id: "static",              name: "Static",         labelPl: "Jednolity (Static)",      icon: "󰏌" },
-  { id: "watercolor",          name: "Water Color",    labelPl: "Akwarela (Water Color)",  icon: "󰏌" },
-  { id: "storm",               name: "Storm",          labelPl: "Burza (Storm)",           icon: "󰏌" },
+  { id: "colorshift",          name: "Color Shift",    labelPl: "Przejście (Color Shift)", icon: "󰏌" },
+  { id: "circle",              name: "Circle",         labelPl: "Okrąg (Circle)",          icon: "󰏌" },
+  { id: "flickering",          name: "Flickering",     labelPl: "Migotanie (Flicker)",     icon: "󰏌" },
   { id: "rotator",             name: "Rotator",        labelPl: "Rotator",                 icon: "󰏌" },
   { id: "spinner",             name: "Spinner",        labelPl: "Spinner",                 icon: "󰏌" },
-  { id: "flickering",          name: "Flickering",     labelPl: "Migotanie (Flicker)",     icon: "󰏌" },
-  { id: "colorwarp",           name: "Color Warp",     labelPl: "Zniekształcenie (Warp)",  icon: "󰏌" },
   { id: "rain",                name: "Rain",           labelPl: "Deszcz (Rain)",           icon: "󰏌" },
   { id: "visor",               name: "Visor",          labelPl: "Wizjer (Visor)",          icon: "󰏌" },
+  { id: "storm",               name: "Storm",          labelPl: "Burza (Storm)",           icon: "󰏌" },
   { id: "off",                 name: "Off",            labelPl: "Wyłączone (Off)",         icon: "󰏌" }
 ];
+
+var COLOR_PALETTES = [
+  { name: "Cyan",    hex: "#06b6d4" },
+  { name: "Blue",    hex: "#3b82f6" },
+  { name: "Purple",  hex: "#a855f7" },
+  { name: "Pink",    hex: "#ec4899" },
+  { name: "Red",     hex: "#ef4444" },
+  { name: "Orange",  hex: "#f97316" },
+  { name: "Amber",   hex: "#f59e0b" },
+  { name: "Green",   hex: "#10b981" },
+  { name: "White",   hex: "#ffffff" },
+  { name: "Black",   hex: "#000000" }
+];
+
+function modeSupportsCustomColors(modeId) {
+  if (!modeId) return false;
+  var m = String(modeId).toLowerCase();
+  var fixedModes = ["rainbow", "spiralrainbow", "pastelrainbow", "pastelspiralrainbow", "nebula", "colorwarp", "off"];
+  return fixedModes.indexOf(m) === -1;
+}
+
+function hexToRgb(hexStr) {
+  if (!hexStr) return { red: 0, green: 255, blue: 255, temperature: 0 };
+  var clean = String(hexStr).replace("#", "").trim();
+  if (clean.length === 3) {
+    clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
+  }
+  if (clean.length >= 6) {
+    var r = parseInt(clean.substring(0, 2), 16);
+    var g = parseInt(clean.substring(2, 4), 16);
+    var b = parseInt(clean.substring(4, 6), 16);
+    return {
+      red: isNaN(r) ? 0 : r,
+      green: isNaN(g) ? 255 : g,
+      blue: isNaN(b) ? 255 : b,
+      temperature: 0
+    };
+  }
+  return { red: 0, green: 255, blue: 255, temperature: 0 };
+}
+
+function rgbToHex(r, g, b) {
+  var rh = Math.max(0, Math.min(255, Math.round(r))).toString(16).padStart(2, '0');
+  var gh = Math.max(0, Math.min(255, Math.round(g))).toString(16).padStart(2, '0');
+  var bh = Math.max(0, Math.min(255, Math.round(b))).toString(16).padStart(2, '0');
+  return "#" + rh + gh + bh;
+}
+
+function colorToHex(col) {
+  if (!col) return "#06b6d4";
+  var s = String(col);
+  if (s.indexOf("#") === 0 && s.length >= 7) return s.substring(0, 7);
+  try {
+    var r = Math.round(col.r * 255);
+    var g = Math.round(col.g * 255);
+    var b = Math.round(col.b * 255);
+    return rgbToHex(r, g, b);
+  } catch (e) {
+    return "#06b6d4";
+  }
+}
 
 function emptyData() {
   return {
@@ -139,8 +220,11 @@ function emptyData() {
     fanControllableDevices: [],
     rgbControllableDevices: [],
     fanProfiles: DEFAULT_FAN_PROFILES.slice(),
+    rgbModes: DEFAULT_RGB_MODES.slice(),
     activeFanProfile: "Quiet",
     activeRgbMode: "wave",
+    startColorHex: "#06b6d4",
+    endColorHex: "#3b82f6",
     isCluster: false,
     rgbOff: false,
     brightness: 100
@@ -153,11 +237,23 @@ function parseOpenLinkHubData(rawText) {
 
   var devicesText = rawText;
   var tempsText = "";
+  var rgbText = "";
 
   if (rawText.indexOf("===TEMPS===") !== -1) {
-    var parts = rawText.split("===TEMPS===");
-    devicesText = parts[0].trim();
-    tempsText = (parts[1] || "").trim();
+    var p1 = rawText.split("===TEMPS===");
+    devicesText = p1[0].trim();
+    var rest = p1[1] || "";
+    if (rest.indexOf("===RGB===") !== -1) {
+      var p2 = rest.split("===RGB===");
+      tempsText = (p2[0] || "").trim();
+      rgbText = (p2[1] || "").trim();
+    } else {
+      tempsText = rest.trim();
+    }
+  } else if (rawText.indexOf("===RGB===") !== -1) {
+    var pr = rawText.split("===RGB===");
+    devicesText = pr[0].trim();
+    rgbText = (pr[1] || "").trim();
   }
 
   var json;
@@ -196,6 +292,7 @@ function parseOpenLinkHubData(rawText) {
         }
       }
       if (devProfile.MultiRGB) out.activeRgbMode = String(devProfile.MultiRGB);
+      else if (devProfile.RGBProfile) out.activeRgbMode = String(devProfile.RGBProfile);
       if (devProfile.RGBCluster !== undefined) out.isCluster = Boolean(devProfile.RGBCluster);
       if (devProfile.RgbOff !== undefined) out.rgbOff = Boolean(devProfile.RgbOff);
       if (devProfile.BrightnessSlider !== undefined) out.brightness = Number(devProfile.BrightnessSlider);
@@ -336,7 +433,7 @@ function parseOpenLinkHubData(rawText) {
       for (var pName in profilesMap) {
         if (!profilesMap.hasOwnProperty(pName)) continue;
         var pData = profilesMap[pName];
-        if (pData && pData.Hidden) continue; // Skip hidden internal curves like emergency shutdown
+        if (pData && pData.Hidden) continue;
         dynamicProfiles.push({
           id: pName,
           name: pName,
@@ -346,6 +443,43 @@ function parseOpenLinkHubData(rawText) {
       }
       if (dynamicProfiles.length > 0) {
         out.fanProfiles = dynamicProfiles;
+      }
+    } catch (e) {}
+  }
+
+  // Parse Dynamic RGB Modes from /api/color/cluster
+  if (rgbText) {
+    try {
+      var rgbObj = JSON.parse(rgbText);
+      var clusterData = rgbObj.data || {};
+      var clusterProfiles = clusterData.profiles || {};
+      var dynamicRgb = [];
+
+      for (var rName in clusterProfiles) {
+        if (!clusterProfiles.hasOwnProperty(rName)) continue;
+        if (rName === "keyboard" || rName === "mouse" || rName === "headset" || rName === "mousepad") continue;
+        dynamicRgb.push({
+          id: rName,
+          name: rName.charAt(0).toUpperCase() + rName.slice(1),
+          labelPl: rName,
+          icon: "󰏌",
+          supportsColors: modeSupportsCustomColors(rName)
+        });
+      }
+
+      // If active profile exists in cluster, extract its current colors
+      var activeRgb = clusterProfiles[out.activeRgbMode];
+      if (activeRgb) {
+        if (activeRgb.start && activeRgb.start.red !== undefined) {
+          out.startColorHex = rgbToHex(activeRgb.start.red, activeRgb.start.green, activeRgb.start.blue);
+        }
+        if (activeRgb.end && activeRgb.end.red !== undefined) {
+          out.endColorHex = rgbToHex(activeRgb.end.red, activeRgb.end.green, activeRgb.end.blue);
+        }
+      }
+
+      if (dynamicRgb.length > 0) {
+        out.rgbModes = dynamicRgb;
       }
     } catch (e) {}
   }
@@ -364,7 +498,7 @@ function getDeviceGroups(data, lang) {
     linkSensors.push({
       key: "liquid_temp",
       label: t("coolantTemp", lang),
-      icon: "💧",
+      icon: "󰖔",
       value: data.liquidTemp.toFixed(1) + " °C",
       raw: data.liquidTemp,
       unit: "°C"
@@ -399,7 +533,7 @@ function getDeviceGroups(data, lang) {
     groups.push({
       id: "icue_link",
       title: (data.liquidName || "iCUE LINK H150i LCD") + " (" + t("liquidCooler", lang) + ")",
-      icon: "💧",
+      icon: "󰖔",
       sensors: linkSensors
     });
   }
@@ -574,7 +708,7 @@ function getDeviceGroups(data, lang) {
 function resolveBarBadge(data, sensorKey, lang) {
   if (!data || !data.connected) {
     return {
-      icon: "💧",
+      icon: "󰖔",
       text: t("offline", lang),
       fullText: "OpenLinkHub: " + t("offline", lang),
       label: t("offline", lang),
@@ -587,8 +721,8 @@ function resolveBarBadge(data, sensorKey, lang) {
   // Standard Presets
   if (key === "liquid_temp") {
     var lt = data.liquidTemp !== null && data.liquidTemp !== undefined ? data.liquidTemp : data.cpuTemp;
-    if (lt === null || lt === undefined) return { icon: "💧", text: "--°", fullText: t("coolantTemp", lang) + ": --", label: t("coolantTemp", lang), raw: null };
-    return { icon: "💧", text: lt.toFixed(1) + "°", fullText: lt.toFixed(1) + " °C (" + t("coolantTemp", lang) + ")", label: t("coolantTemp", lang), raw: lt };
+    if (lt === null || lt === undefined) return { icon: "󰖔", text: "--°", fullText: t("coolantTemp", lang) + ": --", label: t("coolantTemp", lang), raw: null };
+    return { icon: "󰖔", text: lt.toFixed(1) + "°", fullText: lt.toFixed(1) + " °C (" + t("coolantTemp", lang) + ")", label: t("coolantTemp", lang), raw: lt };
   }
 
   if (key === "psu_power") {
@@ -677,7 +811,7 @@ function resolveBarBadge(data, sensorKey, lang) {
     }
   }
 
-  return { icon: "💧", text: "--", fullText: "--", label: "", raw: null };
+  return { icon: "󰖔", text: "--", fullText: "--", label: "", raw: null };
 }
 
 // Get ordered list of sensor keys for right-click cycling
@@ -708,7 +842,7 @@ function formatTooltip(data, currentKey, lang) {
   lines.push(t("tooltipTitle", lang) + " (" + t("connected", lang) + ")");
   lines.push("────────────────────────────────────────");
   if (data.liquidTemp !== null && data.liquidTemp !== undefined) {
-    lines.push("💧 " + t("coolantTemp", lang) + ": " + data.liquidTemp.toFixed(1) + " °C (" + (data.liquidName || "AIO") + ")");
+    lines.push("󰖔 " + t("coolantTemp", lang) + ": " + data.liquidTemp.toFixed(1) + " °C (" + (data.liquidName || "AIO") + ")");
   }
   if (data.pumpRpm !== null && data.pumpRpm !== undefined) {
     lines.push("󰈐 " + t("pumpSpeed", lang) + ": " + data.pumpRpm + " RPM");

@@ -24,10 +24,10 @@ def api_get(endpoint, base_url=DEFAULT_API_URL):
         print(f"Error connecting to OpenLinkHub at {url}: {e}", file=sys.stderr)
         sys.exit(1)
 
-def api_post(endpoint, payload, base_url=DEFAULT_API_URL):
+def api_post(endpoint, payload, base_url=DEFAULT_API_URL, method="POST"):
     url = f"{base_url.rstrip('/')}{endpoint}"
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "openlinkhub-ctl"})
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "openlinkhub-ctl"}, method=method)
     try:
         with urllib.request.urlopen(req, timeout=3) as resp:
             return json.loads(resp.read().decode("utf-8"))
@@ -171,6 +171,19 @@ def parse_hardware(data):
         
     return res
 
+def hex_to_rgb(hex_str):
+    clean = hex_str.lstrip("#").strip()
+    if len(clean) == 3:
+        clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2]
+    if len(clean) >= 6:
+        return {
+            "red": int(clean[0:2], 16),
+            "green": int(clean[2:4], 16),
+            "blue": int(clean[4:6], 16),
+            "temperature": 0
+        }
+    return {"red": 0, "green": 255, "blue": 255, "temperature": 0}
+
 def cmd_status(args):
     data = api_get("/api/devices/", args.api_url)
     hw = parse_hardware(data)
@@ -184,7 +197,7 @@ def cmd_status(args):
     print("========================================")
     
     if hw["liquid_temp"] is not None:
-        print(f"💧 Coolant Temp:  {hw['liquid_temp']} °C ({hw['liquid_name']})")
+        print(f"󰖔 Coolant Temp:  {hw['liquid_temp']} °C ({hw['liquid_name']})")
     if hw["pump_rpm"] is not None:
         print(f"󰈐 Pump Speed:    {hw['pump_rpm']} RPM")
         
@@ -238,7 +251,6 @@ def cmd_query(args):
         sys.exit(1)
 
 def cmd_fan(args):
-    # Fetch available profiles from /api/temperatures
     avail_profiles = ["Quiet", "Normal", "Performance"]
     try:
         t_data = api_get("/api/temperatures", args.api_url)
@@ -253,20 +265,31 @@ def cmd_fan(args):
             profile = p
             break
 
-    data = api_get("/api/devices/", args.api_url)
-    hw = parse_hardware(data)
-    targets = hw["fan_devices"] if hw["fan_devices"] else ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
+    devs_data = api_get("/api/devices/", args.api_url)
+    devs = devs_data.get("devices", {})
+    count = 0
     
-    success = False
-    for dev_id in targets:
-        res = api_post("/api/speed", {"deviceId": dev_id, "channelId": -1, "profile": profile}, args.api_url)
-        if res.get("status") == 1 or res.get("code") == 200:
-            success = True
+    for dev_id, dev in devs.items():
+        get_dev = dev.get("GetDevice") or {}
+        dev_name = dev.get("Product", dev_id)
+        if get_dev.get("IsPSU") or "RM" in dev_name or "PSU" in dev_name or "Memory" in dev_name or dev_id == "cluster":
+            continue
             
-    if success:
-        print(f"Successfully applied fan speed profile '{profile}' across all devices ({len(targets)} controllers).")
-    else:
-        print(f"Warning: could not confirm fan profile change for '{profile}'.", file=sys.stderr)
+        channels = get_dev.get("devices") or {}
+        fan_channels = [ch_id for ch_id, ch in channels.items() if ch.get("description") == "Fan" or "Fan" in ch.get("name", "") or ch.get("rpm") is not None]
+        
+        if fan_channels or get_dev.get("DeviceProfile", {}).get("MultiProfile") is not None:
+            count += 1
+            # 1. Global device broadcast
+            api_post("/api/speed", {"deviceId": dev_id, "channelId": -1, "profile": profile}, args.api_url)
+            # 2. Per-channel broadcast for controllers like Commander Pro
+            for ch_id in fan_channels:
+                try:
+                    api_post("/api/speed", {"deviceId": dev_id, "channelId": int(ch_id), "profile": profile}, args.api_url)
+                except Exception:
+                    pass
+                    
+    print(f"Successfully applied fan speed profile '{profile}' across all devices ({count} controllers).")
 
 def cmd_rgb(args):
     mode = args.mode.lower()
@@ -282,6 +305,28 @@ def cmd_rgb(args):
         api_post("/api/color", {"deviceId": dev_id, "channelId": -1, "profile": mode}, args.api_url)
         
     print(f"Successfully set RGB lighting mode to '{mode}'.")
+
+def cmd_colors(args):
+    mode = args.mode.lower()
+    p1 = hex_to_rgb(args.primary)
+    p2 = hex_to_rgb(args.secondary if args.secondary else args.primary)
+    
+    targets = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
+    for t in targets:
+        payload = {
+            "deviceId": t,
+            "profile": mode,
+            "startColor": p1,
+            "endColor": p2,
+            "middleColor": {"red": 0, "green": 0, "blue": 0, "temperature": 0},
+            "speed": 2,
+            "alternateColors": False,
+            "rgbDirection": 0
+        }
+        api_post("/api/color/change", payload, args.api_url, method="PUT")
+        
+    api_post("/api/color", {"deviceId": "cluster", "channelId": 0, "profile": mode}, args.api_url)
+    print(f"Successfully set RGB colors for '{mode}' to {args.primary} / {args.secondary or args.primary}.")
 
 def cmd_brightness(args):
     try:
@@ -362,6 +407,13 @@ def main():
     p_rgb = subparsers.add_parser("rgb", help="Apply RGB lighting preset")
     p_rgb.add_argument("mode", help="RGB preset mode (e.g. wave, rainbow, static, colorpulse, storm, off)")
     p_rgb.set_defaults(func=cmd_rgb)
+
+    # colors
+    p_colors = subparsers.add_parser("colors", help="Set RGB primary and secondary colors")
+    p_colors.add_argument("mode", help="RGB mode (e.g. static, wave, colorpulse, colorshift)")
+    p_colors.add_argument("primary", help="Primary color in hex (e.g. '#06b6d4')")
+    p_colors.add_argument("secondary", nargs="?", default=None, help="Secondary color in hex (e.g. '#3b82f6')")
+    p_colors.set_defaults(func=cmd_colors)
     
     # brightness
     p_bright = subparsers.add_parser("brightness", help="Set RGB brightness percentage")

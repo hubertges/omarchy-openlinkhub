@@ -15,6 +15,9 @@ Panel {
   property string apiUrl: root.setting("apiUrl", "http://localhost:27003")
   property string displayMetric: root.setting("displayMetric", "liquid_temp")
   property string lang: root.setting("lang", "en")
+  property bool themeSync: root.setting("themeSync", false)
+  property string primaryColorHex: root.setting("primaryColor", "#06b6d4")
+  property string secondaryColorHex: root.setting("secondaryColor", "#3b82f6")
   property int pollInterval: root.setting("pollInterval", 2000)
 
   property bool connected: false
@@ -24,7 +27,15 @@ Panel {
 
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property string ff: root.bar ? root.bar.fontFamily : Style.font.family
-  readonly property string barText: root.connected ? (root.badge.icon + " " + root.badge.text) : "💧 !"
+  readonly property string themeAccentHex: Model.colorToHex(Color.accent)
+  readonly property string themeSecondaryHex: Model.colorToHex(Color.warning)
+
+  readonly property string activePrimaryHex: root.themeSync ? root.themeAccentHex : root.primaryColorHex
+  readonly property string activeSecondaryHex: root.themeSync ? root.themeSecondaryHex : root.secondaryColorHex
+  readonly property string activeRgbMode: (root.rawData && root.rawData.activeRgbMode) ? root.rawData.activeRgbMode : "wave"
+  readonly property bool activeModeSupportsColor: Model.modeSupportsCustomColors(root.activeRgbMode)
+
+  readonly property string barText: root.connected ? (root.badge.icon + " " + root.badge.text) : "󰖔 !"
   readonly property string tooltipText: Model.formatTooltip(root.rawData, root.displayMetric, root.lang)
 
   function t(key) {
@@ -36,6 +47,33 @@ Panel {
     root.lang = nextLang
     root.badge = Model.resolveBarBadge(root.rawData, root.displayMetric, nextLang)
     saveSetting("lang", nextLang)
+  }
+
+  function toggleThemeSync() {
+    var nextSync = !root.themeSync
+    root.themeSync = nextSync
+    saveSetting("themeSync", nextSync)
+    if (nextSync) {
+      root.statusMessage = Model.t("toastThemeSyncOn", root.lang) + root.themeAccentHex
+      applyRgbColors(root.activeRgbMode, root.themeAccentHex, root.themeSecondaryHex)
+    } else {
+      root.statusMessage = Model.t("toastThemeSyncOff", root.lang)
+      applyRgbColors(root.activeRgbMode, root.primaryColorHex, root.secondaryColorHex)
+    }
+  }
+
+  function setCustomColor(isPrimary, hex) {
+    if (root.themeSync) return
+    if (isPrimary) {
+      root.primaryColorHex = hex
+      saveSetting("primaryColor", hex)
+      applyRgbColors(root.activeRgbMode, hex, root.secondaryColorHex)
+    } else {
+      root.secondaryColorHex = hex
+      saveSetting("secondaryColor", hex)
+      applyRgbColors(root.activeRgbMode, root.primaryColorHex, hex)
+    }
+    root.statusMessage = Model.t("toastColors", root.lang) + (isPrimary ? hex : root.primaryColorHex) + " / " + (isPrimary ? root.secondaryColorHex : hex)
   }
 
   function setDefaultMetric(sensorKey) {
@@ -68,7 +106,7 @@ Panel {
     Quickshell.execDetached(["xdg-open", root.apiUrl])
   }
 
-  // --- Apply Fan Speed Profile to All Controllable Devices & Channels (Commander Pro + iCUE LINK) ---
+  // --- Apply Fan Speed Profile to All Controllable Devices & Channels ---
   Process {
     id: setFanProc
     property string profileName: ""
@@ -92,13 +130,13 @@ Panel {
       ? root.rawData.fanControllableDevices
       : ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
 
-    // 1. Device-level broadcast (-1) for all fan controllers
+    // 1. Device-level broadcast (-1)
     for (var i = 0; i < fanDevs.length; i++) {
       var pGlobal = JSON.stringify({ deviceId: fanDevs[i], channelId: -1, profile: profileName })
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + pGlobal + "' " + root.apiUrl + "/api/speed >/dev/null 2>&1; "
     }
 
-    // 2. Per-channel broadcast to every individual fan (mandatory for Commander Pro)
+    // 2. Per-channel broadcast (mandatory for Commander Pro)
     var allFans = (root.rawData && Array.isArray(root.rawData.fans) && root.rawData.fans.length > 0)
       ? root.rawData.fans
       : [
@@ -125,7 +163,7 @@ Panel {
     setFanProc.running = true
   }
 
-  // --- Apply RGB Mode ---
+  // --- Apply RGB Mode & Colors ---
   Process {
     id: setRgbProc
     property string rgbModeName: ""
@@ -143,6 +181,7 @@ Panel {
     if (setRgbProc.running) return
     setRgbProc.rgbModeName = rgbMode
     if (root.rawData) root.rawData.activeRgbMode = rgbMode
+
     var clusterPayload = JSON.stringify({ deviceId: "cluster", channelId: 0, profile: rgbMode })
     var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + clusterPayload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
@@ -153,8 +192,64 @@ Panel {
       var payload = JSON.stringify({ deviceId: devices[i], channelId: -1, profile: rgbMode })
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
     }
+
+    // Also push active colors if mode supports them
+    if (Model.modeSupportsCustomColors(rgbMode)) {
+      var p1 = Model.hexToRgb(root.activePrimaryHex)
+      var p2 = Model.hexToRgb(root.activeSecondaryHex)
+      var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
+      for (var k = 0; k < targets.length; k++) {
+        var cPayload = JSON.stringify({
+          deviceId: targets[k],
+          profile: rgbMode,
+          startColor: p1,
+          endColor: p2,
+          middleColor: { red: 0, green: 0, blue: 0, temperature: 0 },
+          speed: 2,
+          alternateColors: false,
+          rgbDirection: 0
+        })
+        script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + cPayload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
+      }
+    }
+
     setRgbProc.command = ["bash", "-c", script]
     setRgbProc.running = true
+  }
+
+  // --- Apply Custom Colors via PUT /api/color/change ---
+  Process {
+    id: setColorsProc
+    onExited: function(code) {
+      root.refresh()
+    }
+  }
+
+  function applyRgbColors(mode, primaryHex, secondaryHex) {
+    if (!Model.modeSupportsCustomColors(mode)) return
+    var p1 = Model.hexToRgb(primaryHex)
+    var p2 = Model.hexToRgb(secondaryHex)
+    var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "i2c11"]
+    var script = ""
+
+    for (var i = 0; i < targets.length; i++) {
+      var payload = JSON.stringify({
+        deviceId: targets[i],
+        profile: mode,
+        startColor: p1,
+        endColor: p2,
+        middleColor: { red: 0, green: 0, blue: 0, temperature: 0 },
+        speed: 2,
+        alternateColors: false,
+        rgbDirection: 0
+      })
+      script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
+    }
+    // Re-apply active mode so changes take effect immediately
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + mode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+
+    setColorsProc.command = ["bash", "-c", script]
+    setColorsProc.running = true
   }
 
   // --- Apply Brightness ---
@@ -188,10 +283,10 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  // --- Polling Devices & Temperatures / Fan Curves in Parallel ---
+  // --- Polling Devices & Temperatures & Cluster RGB in Parallel ---
   Process {
     id: fetchProc
-    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures"]
+    command: ["bash", "-c", "curl -fsSL --max-time 2 " + root.apiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/temperatures && echo '===RGB===' && curl -fsSL --max-time 2 " + root.apiUrl + "/api/color/cluster"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -232,8 +327,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(460))
-    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(680))
+    contentWidth: panel.fittedContentWidth(Style.space(470))
+    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(690))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -242,6 +337,7 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
         if (t === "r" || t === "R") root.refresh()
+        if (t === "s" || t === "S") root.toggleThemeSync()
         if (t === "l" || t === "L") root.toggleLanguage()
         var num = parseInt(t, 10)
         if (!isNaN(num) && num >= 1 && root.rawData && root.rawData.fanProfiles && num <= root.rawData.fanProfiles.length) {
@@ -315,7 +411,7 @@ Panel {
             }
           }
 
-          // ---------- Quick Action Buttons ----------
+          // ---------- Quick Action Buttons (Web UI + Theme Sync) ----------
           RowLayout {
             width: parent.width
             spacing: Style.space(8)
@@ -331,11 +427,13 @@ Panel {
 
             Button {
               Layout.fillWidth: true
-              text: root.t("refresh")
+              text: root.themeSync ? ("🎨 " + root.t("themeSyncOn")) : ("🎨 " + root.t("themeSyncOff"))
               fontFamily: root.ff
               fontSize: Style.font.caption
               bordered: true
-              onClicked: root.refresh()
+              selected: root.themeSync
+              active: root.themeSync
+              onClicked: root.toggleThemeSync()
             }
           }
 
@@ -451,7 +549,7 @@ Panel {
             }
           }
 
-          // ---------- Section 3: RGB Modes & Brightness ----------
+          // ---------- Section 3: RGB Modes, Theme Sync & Custom Colors ----------
           PanelSeparator { foreground: root.fg }
 
           Item {
@@ -479,6 +577,7 @@ Panel {
             }
           }
 
+          // Dynamic RGB Modes Grid from Cluster
           Grid {
             width: parent.width
             columns: 2
@@ -486,18 +585,137 @@ Panel {
             readonly property real cellWidth: (width - spacing) / 2
 
             Repeater {
-              model: Model.RGB_MODES
+              model: root.rawData && root.rawData.rgbModes && root.rawData.rgbModes.length > 0
+                ? root.rawData.rgbModes
+                : Model.DEFAULT_RGB_MODES
 
               Button {
                 required property var modelData
                 width: parent.cellWidth
-                text: modelData.icon + "  " + (root.lang === "pl" ? modelData.labelPl : modelData.name)
+                text: modelData.icon + "  " + (root.lang === "pl" ? (modelData.labelPl || modelData.name) : modelData.name)
                 fontFamily: root.ff
                 fontSize: Style.font.caption
                 bordered: true
                 selected: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
                 active: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === modelData.id.toLowerCase())
+                dimmed: root.themeSync && !modelData.supportsColors
                 onClicked: root.applyRgbMode(modelData.id)
+              }
+            }
+          }
+
+          // ---------- RGB Color Customization / Theme Sync Panel ----------
+          BorderSurface {
+            width: parent.width
+            radius: Style.cornerRadius
+            color: Style.controlFill(false, false, root.fg, Color.accent)
+            implicitHeight: colorCol.implicitHeight + Style.space(16)
+
+            Column {
+              id: colorCol
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              anchors.margins: Style.space(8)
+              spacing: Style.space(8)
+
+              Item {
+                width: parent.width
+                implicitHeight: Math.max(cTitle.implicitHeight, cHint.implicitHeight)
+
+                Text {
+                  id: cTitle
+                  text: root.t("rgbColors")
+                  color: root.fg
+                  font.family: root.ff
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  id: cHint
+                  text: !root.activeModeSupportsColor
+                    ? root.t("rainbowFixedNotice")
+                    : (root.themeSync ? ("󰄬 " + root.t("themeSyncedNotice")) : "Ręczny wybór barw")
+                  color: !root.activeModeSupportsColor ? Qt.darker(root.fg, 1.5) : Color.accent
+                  font.family: root.ff
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              // Color Palette Swatches (Primary / Accent & Secondary)
+              Column {
+                width: parent.width
+                spacing: Style.space(6)
+                opacity: (root.activeModeSupportsColor && !root.themeSync) ? 1.0 : 0.45
+
+                Text {
+                  text: root.t("primaryColor") + ": " + root.activePrimaryHex.toUpperCase()
+                  color: Qt.darker(root.fg, 1.2)
+                  font.family: root.ff
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+
+                Row {
+                  spacing: Style.space(6)
+                  Repeater {
+                    model: Model.COLOR_PALETTES
+                    Rectangle {
+                      required property var modelData
+                      width: Style.space(24)
+                      height: Style.space(24)
+                      radius: Style.space(4)
+                      color: modelData.hex
+                      border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
+                      border.width: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
+
+                      MouseArea {
+                        anchors.fill: parent
+                        enabled: root.activeModeSupportsColor && !root.themeSync
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.setCustomColor(true, parent.modelData.hex)
+                      }
+                    }
+                  }
+                }
+
+                Text {
+                  text: root.t("secondaryColor") + ": " + root.activeSecondaryHex.toUpperCase()
+                  color: Qt.darker(root.fg, 1.2)
+                  font.family: root.ff
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  anchors.topMargin: Style.space(4)
+                }
+
+                Row {
+                  spacing: Style.space(6)
+                  Repeater {
+                    model: Model.COLOR_PALETTES
+                    Rectangle {
+                      required property var modelData
+                      width: Style.space(24)
+                      height: Style.space(24)
+                      radius: Style.space(4)
+                      color: modelData.hex
+                      border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
+                      border.width: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
+
+                      MouseArea {
+                        anchors.fill: parent
+                        enabled: root.activeModeSupportsColor && !root.themeSync
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.setCustomColor(false, parent.modelData.hex)
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -620,7 +838,7 @@ Panel {
 
               Text {
                 text: sensorRow.modelData.icon
-                color: sensorRow.isCurrent ? Color.accent : (sensorRow.modelData.icon === "💧" ? "#38bdf8" : root.fg)
+                color: sensorRow.isCurrent ? Color.accent : root.fg
                 font.family: root.ff
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true
