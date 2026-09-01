@@ -4,7 +4,17 @@
 
 ![Omarchy OpenLinkHub](https://img.shields.io/badge/Omarchy-Shell%20Plugin-blue)
 ![OpenLinkHub](https://img.shields.io/badge/OpenLinkHub-0.9.1+-success)
+![Status](https://img.shields.io/badge/Status-Beta-orange)
+![AI Assisted](https://img.shields.io/badge/AI-Assisted-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-green)
+
+> [!WARNING]
+> **Project Status & Disclaimer:**
+> - **Beta:** This project is currently in active **Beta**. Features may change, and bugs may occur.
+> - **AI-Assisted:** This project was created with the assistance of AI.
+> - **No Liability:** Provided strictly "AS IS" without warranty. The author is **not responsible** for any damages (hardware, software, thermal issues, or data loss). Use at your own risk.
+> - **Independent / Not Affiliated:** The author is **not responsible for OpenLinkHub** or any other related third-party projects and vendors.
+> - **Looking for Maintainers / Handover:** If you know how to code and would like to maintain or expand this project, I will gladly hand it over into good hands! Contributions and custom additions are warmly welcomed.
 
 ---
 
@@ -140,6 +150,22 @@ The `openlinkhub-ctl` utility can be used from terminal scripts or Hyprland shor
 ./tests/test_manifest.sh
 python3 ./tests/test_api.py
 ```
+
+---
+
+## Disclaimer & Project Status
+
+- **Beta Release:** This repository is currently in beta status. It is functional, but there may be unexpected behaviors or changes.
+- **AI-Generated / AI-Assisted:** This project was developed with the assistance of AI.
+- **Independent Project:** This software is an independent community plugin and is **not affiliated with, maintained by, or responsible for OpenLinkHub** or any related third-party hardware/software projects.
+- **No Liability / Disclaimer of Warranties:** The software is provided "AS IS", without warranty of any kind. The author assumes **no responsibility or liability** for any damages, hardware malfunctions, cooling failures, thermal throttling, data loss, or other issues resulting from using this software.
+
+---
+
+## Contributing & Project Handover
+
+- **Custom Additions & PRs:** You are very welcome to add your own features, tweaks, bug fixes, or improvements. Pull requests and issues are open!
+- **Looking for a Maintainer:** If you know how to code and would like to maintain, develop, or take over this repository, **I would gladly hand it over to good hands.** Feel free to reach out via GitHub issues.
 
 ---
 

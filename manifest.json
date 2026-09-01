@@ -22,6 +22,67 @@
       "icue"
     ],
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "displayMetric": "liquid_temp",
+      "apiUrl": "http://localhost:27003",
+      "pollInterval": 2000,
+      "lang": "en",
+      "themeSync": false
+    },
+    "schema": [
+      {
+        "key": "displayMetric",
+        "type": "enum",
+        "label": "Display metric",
+        "options": [
+          "liquid_temp",
+          "psu_power",
+          "cpu_temp",
+          "gpu_temp",
+          "ram_temp",
+          "pump_rpm",
+          "fan_rpm",
+          "psu_vrm_temp"
+        ],
+        "defaultValue": "liquid_temp",
+        "description": "Sensor metric shown on the bar badge"
+      },
+      {
+        "key": "apiUrl",
+        "type": "string",
+        "label": "API URL",
+        "defaultValue": "http://localhost:27003",
+        "description": "OpenLinkHub REST API base endpoint"
+      },
+      {
+        "key": "pollInterval",
+        "type": "integer",
+        "label": "Poll interval (ms)",
+        "min": 500,
+        "max": 60000,
+        "step": 500,
+        "defaultValue": 2000,
+        "description": "Hardware polling refresh interval in milliseconds"
+      },
+      {
+        "key": "lang",
+        "type": "enum",
+        "label": "Language",
+        "options": [
+          "en",
+          "pl"
+        ],
+        "defaultValue": "en",
+        "description": "Interface language (English or Polish)"
+      },
+      {
+        "key": "themeSync",
+        "type": "boolean",
+        "label": "Sync with Omarchy Theme",
+        "defaultValue": false,
+        "description": "Automatically match RGB lighting colors to the active Omarchy system theme accent"
+      }
+    ]
   }
 }
