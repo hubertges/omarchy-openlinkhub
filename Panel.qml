@@ -719,6 +719,34 @@ Panel {
                 }
               }
 
+              // Top Action Buttons: Rainbow (Default) and Apply
+              Row {
+                width: parent.width
+                spacing: Style.space(8)
+
+                Button {
+                  width: (parent.width - Style.space(8)) / 2
+                  text: "󰏌 Rainbow (Default)"
+                  fontFamily: root.ff
+                  fontSize: Style.font.caption
+                  bordered: true
+                  active: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === "rainbow")
+                  onClicked: root.applyRgbMode("rainbow")
+                }
+
+                Button {
+                  width: (parent.width - Style.space(8)) / 2
+                  text: "󰄬 Apply"
+                  fontFamily: root.ff
+                  fontSize: Style.font.caption
+                  bordered: true
+                  onClicked: {
+                    root.applyRgbColors(root.activeRgbMode, root.activePrimaryHex, root.activeSecondaryHex)
+                    root.statusMessage = Model.t("toastColorsApplied", root.lang) + root.activePrimaryHex.toUpperCase() + " / " + root.activeSecondaryHex.toUpperCase()
+                  }
+                }
+              }
+
               // Color Palette Swatches (Primary / Accent & Secondary)
               Column {
                 width: parent.width
@@ -816,14 +844,14 @@ Panel {
                   }
                 }
 
-                // Quick Action Buttons: Rainbow (Default) and Apply Colors
+                // Bottom Action Buttons: Rainbow (Default) and Apply Colors
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
 
                   Button {
                     width: (parent.width - Style.space(8)) / 2
-                    text: "󰏌 " + root.t("rainbowDefault")
+                    text: "󰏌 Rainbow (Default)"
                     fontFamily: root.ff
                     fontSize: Style.font.caption
                     bordered: true
@@ -833,7 +861,7 @@ Panel {
 
                   Button {
                     width: (parent.width - Style.space(8)) / 2
-                    text: "󰄬 " + root.t("applyColors")
+                    text: "󰄬 Apply"
                     fontFamily: root.ff
                     fontSize: Style.font.caption
                     bordered: true

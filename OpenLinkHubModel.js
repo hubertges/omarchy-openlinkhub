@@ -54,7 +54,7 @@ var I18N = {
     toastErrorFan: "Error applying fan profile",
     toastErrorRgb: "Error applying RGB mode",
     rainbowDefault: "Rainbow (Default)",
-    applyColors: "Apply Colors",
+    applyColors: "Apply",
     toastColorsApplied: "󰄬 Applied RGB colors: ",
     tooltipTitle: "OpenLinkHub Hardware Monitor",
     clickHint: "• Left click: Panel\n• Right click: Next sensor\n• Middle click: Refresh"
@@ -108,8 +108,8 @@ var I18N = {
     toastThemeSyncOff: "󰄬 Wyłączono synchronizację RGB (ręczny wybór barw)",
     toastErrorFan: "Błąd zmiany profilu wentylatorów",
     toastErrorRgb: "Błąd zmiany trybu RGB",
-    rainbowDefault: "Tęcza (Domyślna)",
-    applyColors: "Zastosuj kolory",
+    rainbowDefault: "Rainbow (Default)",
+    applyColors: "Apply",
     toastColorsApplied: "󰄬 Zastosowano kolory RGB: ",
     tooltipTitle: "OpenLinkHub · Stan sprzętu",
     clickHint: "• Lewy klik: Panel\n• Prawy klik: Kolejny czujnik\n• Środkowy klik: Odśwież"
