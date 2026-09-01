@@ -7,28 +7,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="$HOME/.config/omarchy/plugins/hubi.openlinkhub"
 CONFIG_FILE="$HOME/.config/omarchy/shell.json"
 
-echo "==> Instalowanie dodatku OpenLinkHub dla Omarchy..."
+echo "==> Installing OpenLinkHub plugin for Omarchy..."
 
-# 1. Create target plugin directory
 mkdir -p "$TARGET_DIR"
 
-# 2. Copy plugin files (excluding .git)
 cp -r "$SCRIPT_DIR/manifest.json" "$TARGET_DIR/"
 cp -r "$SCRIPT_DIR/BarWidget.qml" "$TARGET_DIR/"
+cp -r "$SCRIPT_DIR/Panel.qml" "$TARGET_DIR/"
 cp -r "$SCRIPT_DIR/OpenLinkHubModel.js" "$TARGET_DIR/"
 mkdir -p "$TARGET_DIR/bin"
 cp -r "$SCRIPT_DIR/bin/openlinkhub-ctl" "$TARGET_DIR/bin/"
 chmod +x "$TARGET_DIR/bin/openlinkhub-ctl"
 
-# 3. Validate plugin
 if command -v omarchy >/dev/null 2>&1; then
-  echo "==> Walidacja manifestu dodatku..."
+  echo "==> Validating plugin manifest..."
   omarchy plugin validate "$TARGET_DIR"
 fi
 
-# 4. Enable in shell.json if not already present
 if [[ -f "$CONFIG_FILE" ]]; then
-  echo "==> Konfiguracja paska zadań w $CONFIG_FILE..."
+  echo "==> Updating bar configuration in $CONFIG_FILE..."
   python3 -c "
 import json
 
@@ -41,22 +38,20 @@ right_section = layout.setdefault('right', [])
 
 exists = any(item.get('id') in ['hubi.openlinkhub', 'omarchy.openlinkhub'] for item in right_section)
 if not exists:
-    # Insert right after tray or at the beginning of right section
     entry = {'id': 'hubi.openlinkhub', 'displayMetric': 'liquid_temp'}
     right_section.insert(0, entry)
     with open('$CONFIG_FILE', 'w') as f:
         json.dump(cfg, f, indent=2)
-    print('  Dodano hubi.openlinkhub do sekcji right w shell.json')
+    print('  Added hubi.openlinkhub to the right bar section.')
 else:
-    print('  hubi.openlinkhub jest już obecny w shell.json')
+    print('  hubi.openlinkhub is already present in shell.json.')
 "
 fi
 
-# 5. Reload shell plugins
 if command -v omarchy-shell >/dev/null 2>&1; then
-  echo "==> Przeładowywanie wtyczek omarchy-shell..."
+  echo "==> Reloading Omarchy shell plugins..."
   omarchy-shell shell rescanPlugins 2>/dev/null || true
 fi
 
-echo "==> Sukces! Dodatek OpenLinkHub został pomyślnie zainstalowany."
-echo "    Możesz przetestować CLI za pomocą: $TARGET_DIR/bin/openlinkhub-ctl status"
+echo "==> Success! OpenLinkHub has been installed."
+echo "    You can test the CLI with: $TARGET_DIR/bin/openlinkhub-ctl status"

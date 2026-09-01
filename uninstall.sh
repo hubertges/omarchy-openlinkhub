@@ -6,11 +6,10 @@ set -e
 TARGET_DIR="$HOME/.config/omarchy/plugins/hubi.openlinkhub"
 CONFIG_FILE="$HOME/.config/omarchy/shell.json"
 
-echo "==> Usuwanie dodatku OpenLinkHub..."
+echo "==> Removing OpenLinkHub plugin..."
 
-# 1. Remove from shell.json
 if [[ -f "$CONFIG_FILE" ]]; then
-  echo "==> Usuwanie wpisu z $CONFIG_FILE..."
+  echo "==> Removing bar entry from $CONFIG_FILE..."
   python3 -c "
 import json
 
@@ -30,19 +29,17 @@ for section in ['left', 'center', 'right']:
 if changed:
     with open('$CONFIG_FILE', 'w') as f:
         json.dump(cfg, f, indent=2)
-    print('  Usunięto z paska zadań.')
+    print('  Removed the widget from the bar configuration.')
 "
 fi
 
-# 2. Delete plugin files
 if [[ -d "$TARGET_DIR" ]]; then
   rm -rf "$TARGET_DIR"
-  echo "  Usunięto katalog $TARGET_DIR"
+  echo "  Removed $TARGET_DIR"
 fi
 
-# 3. Reload shell
 if command -v omarchy-shell >/dev/null 2>&1; then
   omarchy-shell shell rescanPlugins 2>/dev/null || true
 fi
 
-echo "==> Dodatek OpenLinkHub został usunięty."
+echo "==> OpenLinkHub plugin has been removed."

@@ -4,16 +4,17 @@
   "name": "OpenLinkHub",
   "version": "1.0.0",
   "author": "hubi",
-  "description": "Hardware monitoring and Fan & RGB control via OpenLinkHub",
+  "license": "MIT",
+  "description": "Hardware monitoring, fan control, and RGB lighting management for OpenLinkHub.",
   "kinds": [
     "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "OpenLinkHub",
-    "description": "Hardware monitoring and Fan & RGB control",
+    "description": "Hardware monitoring, fan control, and RGB lighting.",
     "category": "Hardware",
     "aliases": [
       "openlinkhub",
@@ -22,5 +23,8 @@
     ],
     "allowMultiple": false,
     "defaultSection": "right"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.clock"
   }
 }
