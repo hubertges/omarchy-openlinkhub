@@ -287,15 +287,19 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Re-apply active mode to cluster (channel 0)
+    // 2. Fast bounce transition on cluster so animation engine tears down old buffer and reloads updated profile colors
+    var bounceMode = (targetMode === "circle") ? "wave" : "circle"
+    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + bounceMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+
+    // 3. Immediately switch back to target mode on cluster (channel 0)
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    // 3. Re-apply active mode to all individual RGB devices (channel -1)
+    // 4. Re-apply active mode to all individual RGB devices (channel -1)
     for (var j = 1; j < targets.length; j++) {
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
     }
 
-    // 4. Global broadcast to reload active profile colors immediately
+    // 5. Global broadcast to reload active profile colors immediately
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
@@ -808,6 +812,34 @@ Panel {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.setCustomColor(false, modelData.hex)
                       }
+                    }
+                  }
+                }
+
+                // Quick Action Buttons: Rainbow (Default) and Apply Colors
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  Button {
+                    width: (parent.width - Style.space(8)) / 2
+                    text: "󰏌 " + root.t("rainbowDefault")
+                    fontFamily: root.ff
+                    fontSize: Style.font.caption
+                    bordered: true
+                    active: (root.rawData && (root.rawData.activeRgbMode || "").toLowerCase() === "rainbow")
+                    onClicked: root.applyRgbMode("rainbow")
+                  }
+
+                  Button {
+                    width: (parent.width - Style.space(8)) / 2
+                    text: "󰄬 " + root.t("applyColors")
+                    fontFamily: root.ff
+                    fontSize: Style.font.caption
+                    bordered: true
+                    onClicked: {
+                      root.applyRgbColors(root.activeRgbMode, root.activePrimaryHex, root.activeSecondaryHex)
+                      root.statusMessage = Model.t("toastColorsApplied", root.lang) + root.activePrimaryHex.toUpperCase() + " / " + root.activeSecondaryHex.toUpperCase()
                     }
                   }
                 }
