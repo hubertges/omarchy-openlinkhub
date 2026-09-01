@@ -65,10 +65,7 @@ Panel {
   }
 
   function setCustomColor(isPrimary, hex) {
-    if (root.themeSync) {
-      root.themeSync = false
-      saveSetting("themeSync", false)
-    }
+    root.themeSync = false
 
     var targetMode = root.activeRgbMode
     if (!Model.modeSupportsCustomColors(targetMode)) {
@@ -76,26 +73,27 @@ Panel {
       if (root.rawData) root.rawData.activeRgbMode = "static"
     }
 
-    var newP1 = isPrimary ? hex : root.primaryColorHex
-    var newP2 = isPrimary ? root.secondaryColorHex : hex
+    var newP1 = isPrimary ? hex : root.activePrimaryHex
+    var newP2 = isPrimary ? root.activeSecondaryHex : hex
 
-    if (isPrimary) {
-      root.primaryColorHex = hex
-      saveSetting("primaryColor", hex)
-    } else {
-      root.secondaryColorHex = hex
-      saveSetting("secondaryColor", hex)
-    }
+    root.primaryColorHex = newP1
+    root.secondaryColorHex = newP2
 
-    // Save into theme memory
+    // Save into theme memory map
     var currentMap = Object.assign({}, root.themeColorsMap)
     currentMap[root.activeThemeSlug] = { primary: newP1, secondary: newP2 }
     root.themeColorsMap = currentMap
-    saveSetting("themeColorsMap", currentMap)
+
+    saveSettings({
+      "themeSync": false,
+      "primaryColor": newP1,
+      "secondaryColor": newP2,
+      "themeColorsMap": currentMap
+    })
 
     // Persist to state file
     var jsonPayload = JSON.stringify(currentMap).replace(/'/g, "'\\''")
-    Quickshell.execDetached(["bash", "-c", "echo '" + jsonPayload + "' > ~/.local/state/omarchy/openlinkhub-theme-colors.json"])
+    Quickshell.execDetached(["bash", "-c", "mkdir -p ~/.local/state/omarchy && echo '" + jsonPayload + "' > ~/.local/state/omarchy/openlinkhub-theme-colors.json"])
 
     applyRgbColors(targetMode, newP1, newP2)
     root.statusMessage = Model.t("toastColors", root.lang) + root.activeThemeSlug + ": " + newP1 + " / " + newP2
@@ -108,13 +106,22 @@ Panel {
     saveSetting("displayMetric", sensorKey)
   }
 
-  function saveSetting(key, val) {
+  function saveSettings(dict) {
+    var next = {}
+    for (var k in root.settings) if (k !== "id") next[k] = root.settings[k]
+    for (var key in dict) next[key] = dict[key]
+    root.settings = next
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
       var entry = { id: root.moduleName }
-      for (var k in root.settings) if (k !== "id") entry[k] = root.settings[k]
-      entry[key] = val
+      for (var ek in next) entry[ek] = next[ek]
       root.bar.shell.updateEntryInline(root.moduleName, entry)
     }
+  }
+
+  function saveSetting(key, val) {
+    var obj = {}
+    obj[key] = val
+    saveSettings(obj)
   }
 
   function cycleMetric() {
@@ -233,8 +240,11 @@ Panel {
     if (Model.modeSupportsCustomColors(rgbMode)) {
       applyRgbColors(rgbMode, root.activePrimaryHex, root.activeSecondaryHex)
     } else {
+      var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
       var script = "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
-      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"i2c11\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      for (var i = 1; i < targets.length; i++) {
+        script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+      }
       script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
       setRgbProc.command = ["bash", "-c", script]
       setRgbProc.running = true
@@ -277,11 +287,13 @@ Panel {
       script += "curl -s -L -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.apiUrl + "/api/color/change >/dev/null 2>&1; "
     }
 
-    // 2. Re-apply active mode to cluster
+    // 2. Re-apply active mode to cluster (channel 0)
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
 
-    // 3. Re-apply active mode to memory
-    script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"i2c11\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    // 3. Re-apply active mode to all individual RGB devices (channel -1)
+    for (var j = 1; j < targets.length; j++) {
+      script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color >/dev/null 2>&1; "
+    }
 
     // 4. Global broadcast to reload active profile colors immediately
     script += "curl -s -L -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.apiUrl + "/api/color/global >/dev/null 2>&1; "
@@ -735,11 +747,20 @@ Panel {
                       border.color: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
                       border.width: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
 
+                      Text {
+                        anchors.centerIn: parent
+                        text: (root.activePrimaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? "󰄬" : ""
+                        color: Model.isDarkColor(modelData.hex) ? "#ffffff" : "#000000"
+                        font.family: root.ff
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+
                       MouseArea {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.setCustomColor(true, pSwatch.modelData.hex)
+                        onClicked: root.setCustomColor(true, modelData.hex)
                       }
                     }
                   }
@@ -772,11 +793,20 @@ Panel {
                       border.color: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? Color.accent : Qt.darker(root.fg, 1.6)
                       border.width: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? 2 : 1
 
+                      Text {
+                        anchors.centerIn: parent
+                        text: (root.activeSecondaryHex.toLowerCase() === modelData.hex.toLowerCase()) ? "󰄬" : ""
+                        color: Model.isDarkColor(modelData.hex) ? "#ffffff" : "#000000"
+                        font.family: root.ff
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+
                       MouseArea {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.setCustomColor(false, sSwatch.modelData.hex)
+                        onClicked: root.setCustomColor(false, modelData.hex)
                       }
                     }
                   }

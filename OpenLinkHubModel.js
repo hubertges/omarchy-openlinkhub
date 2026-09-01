@@ -183,6 +183,12 @@ function hexToRgb(hexStr) {
   return { red: 6, green: 182, blue: 212, temperature: 0 };
 }
 
+function isDarkColor(hexStr) {
+  var rgb = hexToRgb(hexStr);
+  var luminance = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255;
+  return luminance < 0.55;
+}
+
 function rgbToHex(r, g, b) {
   var rh = Math.max(0, Math.min(255, Math.round(r))).toString(16).padStart(2, '0');
   var gh = Math.max(0, Math.min(255, Math.round(g))).toString(16).padStart(2, '0');
