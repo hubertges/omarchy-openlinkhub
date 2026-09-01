@@ -164,6 +164,19 @@ var COLOR_PALETTES = [
   { name: "Off",          hex: "#000000" }
 ];
 
+function sanitizeApiUrl(url) {
+  if (!url || typeof url !== "string") return "http://localhost:27003";
+  var trimmed = url.trim();
+  if (/^https?:\/\/[a-zA-Z0-9_\-\.:]+$/i.test(trimmed)) {
+    return trimmed.replace(/\/+$/, "");
+  }
+  var match = trimmed.match(/^(https?:\/\/[a-zA-Z0-9_\-\.]+(:[0-9]{1,5})?)/i);
+  if (match) {
+    return match[1];
+  }
+  return "http://localhost:27003";
+}
+
 function modeSupportsCustomColors(modeId) {
   if (!modeId) return false;
   var m = String(modeId).toLowerCase();
