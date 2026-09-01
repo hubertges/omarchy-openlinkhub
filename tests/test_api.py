@@ -53,5 +53,20 @@ class TestOpenLinkHub(unittest.TestCase):
         res = ctl.api_post("/api/color", {"deviceId": "cluster", "channelId": 0, "profile": "wave"}, self.api_url)
         self.assertEqual(res.get("status"), 1)
 
+    def test_05_theme_color_sync(self):
+        """Test theme-based color sync payload via API."""
+        payload = {
+            "deviceId": "cluster",
+            "profile": "static",
+            "startColor": {"red": 6, "green": 182, "blue": 212, "temperature": 0},
+            "endColor": {"red": 56, "green": 189, "blue": 248, "temperature": 0},
+            "middleColor": {"red": 0, "green": 0, "blue": 0, "temperature": 0},
+            "speed": 2,
+            "alternateColors": False,
+            "rgbDirection": 0
+        }
+        res = ctl.api_put("/api/color/change", payload, self.api_url)
+        self.assertEqual(res.get("status"), 1)
+
 if __name__ == "__main__":
     unittest.main()

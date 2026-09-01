@@ -35,6 +35,9 @@ def api_post(endpoint, payload, base_url=DEFAULT_API_URL, method="POST"):
         print(f"Error sending request to {url}: {e}", file=sys.stderr)
         sys.exit(1)
 
+def api_put(endpoint, payload, base_url=DEFAULT_API_URL):
+    return api_post(endpoint, payload, base_url=base_url, method="PUT")
+
 def parse_hardware(data):
     res = {
         "liquid_temp": None,

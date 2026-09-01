@@ -56,6 +56,7 @@ var I18N = {
     rainbowDefault: "Rainbow (Default)",
     applyColors: "Apply",
     toastColorsApplied: "󰄬 Applied RGB colors: ",
+    monochromeThemeNotice: "Monochrome theme (grayscale + pop accents)",
     tooltipTitle: "OpenLinkHub Hardware Monitor",
     clickHint: "• Left click: Panel\n• Right click: Next sensor\n• Middle click: Refresh"
   },
@@ -79,6 +80,7 @@ var I18N = {
     secondaryColor: "Kolor pomocniczy",
     themeSyncedNotice: "Synchronizacja z motywem włączona",
     manualColorsNotice: "Kolory zapamiętane dla motywu: ",
+    monochromeThemeNotice: "Motyw monochromatyczny (odcienie szarości + akcenty)",
     rainbowFixedNotice: "Tryb tęczy o stałych barwach",
     brightness: "JASNOŚĆ RGB",
     devicesOverview: "URZĄDZENIA I CZUJNIKI SPRZĘTU",
@@ -189,10 +191,29 @@ function hexToRgb(hexStr) {
   return { red: 6, green: 182, blue: 212, temperature: 0 };
 }
 
-function isDarkColor(hexStr) {
+function getColorSaturation(hexStr) {
   var rgb = hexToRgb(hexStr);
-  var luminance = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255;
-  return luminance < 0.55;
+  var r = rgb.red / 255, g = rgb.green / 255, b = rgb.blue / 255;
+  var max = Math.max(r, g, b), min = Math.min(r, g, b);
+  return max === 0 ? 0 : (max - min) / max;
+}
+
+function getColorLuminance(hexStr) {
+  var rgb = hexToRgb(hexStr);
+  return (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255;
+}
+
+function isPureOrNearBlackOrWhite(hexStr) {
+  if (!hexStr) return true;
+  var l = getColorLuminance(hexStr);
+  var s = getColorSaturation(hexStr);
+  if (l < 0.16 || l > 0.90) return true;
+  if (s < 0.12 && (l < 0.28 || l > 0.78)) return true;
+  return false;
+}
+
+function isDarkColor(hexStr) {
+  return getColorLuminance(hexStr) < 0.55;
 }
 
 function rgbToHex(r, g, b) {
@@ -214,6 +235,158 @@ function colorToHex(col) {
   } catch (e) {
     return "#06b6d4";
   }
+}
+
+function parseTomlColors(tomlText) {
+  var colors = {};
+  if (!tomlText) return colors;
+  var lines = tomlText.split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line || line.indexOf("#") === 0 || line.indexOf("[") === 0) continue;
+    var eqIdx = line.indexOf("=");
+    if (eqIdx !== -1) {
+      var key = line.substring(0, eqIdx).trim();
+      var val = line.substring(eqIdx + 1).trim().replace(/['"]/g, "").trim();
+      if (key && val && val.indexOf("#") === 0) {
+        colors[key] = val;
+      }
+    }
+  }
+  return colors;
+}
+
+function isMonochromaticTheme(colorsMap) {
+  if (!colorsMap) return true;
+  var candidateKeys = [
+    "accent", "red", "green", "blue", "cyan", "yellow", "orange",
+    "magenta", "bright_red", "bright_green", "bright_blue",
+    "bright_cyan", "bright_yellow", "bright_magenta"
+  ];
+  var saturatedAccents = 0;
+  for (var i = 0; i < candidateKeys.length; i++) {
+    var c = colorsMap[candidateKeys[i]];
+    if (c && getColorSaturation(c) >= 0.18) {
+      saturatedAccents++;
+    }
+  }
+  return saturatedAccents < 2;
+}
+
+var MONOCHROME_GRAY_SHADES = [
+  { name: "Silver Ice", hex: "#f1f5f9" },
+  { name: "Light Platinum", hex: "#cbd5e1" },
+  { name: "Cool Silver", hex: "#94a3b8" },
+  { name: "Slate Steel", hex: "#64748b" },
+  { name: "Graphite", hex: "#475569" },
+  { name: "Charcoal", hex: "#334155" }
+];
+
+var MONOCHROME_ACCENT_POPS = [
+  { name: "Neon Cyan", hex: "#06b6d4" },
+  { name: "Sky Blue", hex: "#38bdf8" },
+  { name: "Electric Blue", hex: "#3b82f6" },
+  { name: "Violet", hex: "#a855f7" },
+  { name: "Synthwave Pink", hex: "#ec4899" },
+  { name: "Crimson", hex: "#ef4444" },
+  { name: "Amber Gold", hex: "#f59e0b" },
+  { name: "Emerald", hex: "#10b981" }
+];
+
+var DEFAULT_FALLBACK_PALETTE = [
+  { name: "Cyan", hex: "#06b6d4" },
+  { name: "Sky Blue", hex: "#38bdf8" },
+  { name: "Blue", hex: "#2563eb" },
+  { name: "Indigo", hex: "#4f46e5" },
+  { name: "Purple", hex: "#a855f7" },
+  { name: "Pink", hex: "#ec4899" },
+  { name: "Red", hex: "#ef4444" },
+  { name: "Orange", hex: "#f97316" },
+  { name: "Amber", hex: "#f59e0b" },
+  { name: "Emerald", hex: "#10b981" },
+  { name: "Teal", hex: "#0d9488" },
+  { name: "Slate", hex: "#64748b" },
+  { name: "Silver", hex: "#cbd5e1" },
+  { name: "Cool Gray", hex: "#94a3b8" }
+];
+
+function resolveSmartThemeAccent(tomlColors, themeSlug) {
+  var colors = tomlColors || {};
+  var rawAccent = colors.accent || "#7aa2f7";
+  if (!isPureOrNearBlackOrWhite(rawAccent) && getColorSaturation(rawAccent) >= 0.15) {
+    return rawAccent;
+  }
+  var candidateKeys = [
+    "bright_cyan", "cyan", "bright_blue", "blue", "bright_green",
+    "green", "bright_yellow", "yellow", "orange", "bright_red", "red",
+    "bright_magenta", "magenta"
+  ];
+  for (var i = 0; i < candidateKeys.length; i++) {
+    var c = colors[candidateKeys[i]];
+    if (c && !isPureOrNearBlackOrWhite(c) && getColorSaturation(c) >= 0.18) {
+      return c;
+    }
+  }
+  return "#06b6d4"; // Default vibrant cyan if theme is fully grayscale
+}
+
+function resolveSmartThemeSecondary(tomlColors, themeSlug, primaryHex) {
+  var colors = tomlColors || {};
+  var pLower = (primaryHex || "").toLowerCase();
+  var candidateKeys = [
+    "bright_cyan", "cyan", "bright_magenta", "magenta", "bright_blue",
+    "blue", "bright_yellow", "yellow", "bright_green", "green", "orange",
+    "bright_red", "red"
+  ];
+  for (var i = 0; i < candidateKeys.length; i++) {
+    var c = colors[candidateKeys[i]];
+    if (c && c.toLowerCase() !== pLower && !isPureOrNearBlackOrWhite(c) && getColorSaturation(c) >= 0.18) {
+      return c;
+    }
+  }
+  return "#38bdf8";
+}
+
+function buildSmartThemePalette(themeSlug, tomlColors) {
+  var colors = tomlColors || {};
+  var isMono = isMonochromaticTheme(colors);
+  if (isMono) {
+    return MONOCHROME_GRAY_SHADES.concat(MONOCHROME_ACCENT_POPS);
+  }
+
+  var keysPriority = [
+    "accent", "bright_cyan", "cyan", "bright_blue", "blue",
+    "bright_green", "green", "bright_yellow", "yellow",
+    "orange", "bright_red", "red", "bright_magenta", "magenta"
+  ];
+
+  var collected = [];
+  var seenHexes = {};
+
+  for (var i = 0; i < keysPriority.length; i++) {
+    var k = keysPriority[i];
+    var hex = colors[k];
+    if (hex && typeof hex === "string" && hex.indexOf("#") === 0) {
+      hex = hex.toLowerCase();
+      if (!isPureOrNearBlackOrWhite(hex) && !seenHexes[hex]) {
+        seenHexes[hex] = true;
+        var nameLabel = k.replace(/_/g, " ").replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+        collected.push({ name: nameLabel, hex: hex });
+      }
+    }
+  }
+
+  if (collected.length < 7) {
+    for (var j = 0; j < DEFAULT_FALLBACK_PALETTE.length && collected.length < 14; j++) {
+      var fb = DEFAULT_FALLBACK_PALETTE[j];
+      if (!seenHexes[fb.hex.toLowerCase()]) {
+        seenHexes[fb.hex.toLowerCase()] = true;
+        collected.push(fb);
+      }
+    }
+  }
+
+  return collected;
 }
 
 function emptyData() {
@@ -241,7 +414,12 @@ function emptyData() {
     rgbModes: DEFAULT_RGB_MODES.slice(),
     activeFanProfile: "Quiet",
     activeRgbMode: "wave",
-    currentThemeSlug: "vantablack",
+    currentThemeSlug: "tokyo-night",
+    themeColors: {},
+    isMonochromeTheme: false,
+    smartAccentHex: "#06b6d4",
+    smartSecondaryHex: "#38bdf8",
+    themePalette: DEFAULT_FALLBACK_PALETTE.slice(),
     savedThemeColors: {},
     startColorHex: "#06b6d4",
     endColorHex: "#3b82f6",
@@ -259,33 +437,42 @@ function parseOpenLinkHubData(rawText) {
   var tempsText = "";
   var rgbText = "";
   var themeText = "";
+  var themeColorsText = "";
   var savedText = "";
 
-  if (rawText.indexOf("===TEMPS===") !== -1) {
-    var p1 = rawText.split("===TEMPS===");
-    devicesText = p1[0].trim();
-    var rest1 = p1[1] || "";
-    if (rest1.indexOf("===RGB===") !== -1) {
-      var p2 = rest1.split("===RGB===");
-      tempsText = (p2[0] || "").trim();
-      var rest2 = p2[1] || "";
-      if (rest2.indexOf("===THEME===") !== -1) {
-        var p3 = rest2.split("===THEME===");
-        rgbText = (p3[0] || "").trim();
-        var rest3 = p3[1] || "";
-        if (rest3.indexOf("===SAVED===") !== -1) {
-          var p4 = rest3.split("===SAVED===");
-          themeText = (p4[0] || "").trim();
-          savedText = (p4[1] || "").trim();
-        } else {
-          themeText = rest3.trim();
-        }
-      } else {
-        rgbText = rest2.trim();
-      }
-    } else {
-      tempsText = rest1.trim();
-    }
+  // Split out SAVED theme json
+  if (devicesText.indexOf("===SAVED===") !== -1) {
+    var pSaved = devicesText.split("===SAVED===");
+    devicesText = pSaved[0];
+    savedText = (pSaved[1] || "").trim();
+  }
+
+  // Split out THEME_COLORS
+  if (devicesText.indexOf("===THEME_COLORS===") !== -1) {
+    var pColors = devicesText.split("===THEME_COLORS===");
+    devicesText = pColors[0];
+    themeColorsText = (pColors[1] || "").trim();
+  }
+
+  // Split out THEME name
+  if (devicesText.indexOf("===THEME===") !== -1) {
+    var pTheme = devicesText.split("===THEME===");
+    devicesText = pTheme[0];
+    themeText = (pTheme[1] || "").trim();
+  }
+
+  // Split out RGB
+  if (devicesText.indexOf("===RGB===") !== -1) {
+    var pRgb = devicesText.split("===RGB===");
+    devicesText = pRgb[0];
+    rgbText = (pRgb[1] || "").trim();
+  }
+
+  // Split out TEMPS
+  if (devicesText.indexOf("===TEMPS===") !== -1) {
+    var pTemps = devicesText.split("===TEMPS===");
+    devicesText = (pTemps[0] || "").trim();
+    tempsText = (pTemps[1] || "").trim();
   }
 
   var json;
@@ -518,6 +705,16 @@ function parseOpenLinkHubData(rawText) {
 
   if (themeText) {
     out.currentThemeSlug = themeText.trim();
+  }
+
+  if (themeColorsText) {
+    out.themeColors = parseTomlColors(themeColorsText);
+    out.isMonochromeTheme = isMonochromaticTheme(out.themeColors);
+    out.smartAccentHex = resolveSmartThemeAccent(out.themeColors, out.currentThemeSlug);
+    out.smartSecondaryHex = resolveSmartThemeSecondary(out.themeColors, out.currentThemeSlug, out.smartAccentHex);
+    out.themePalette = buildSmartThemePalette(out.currentThemeSlug, out.themeColors);
+  } else {
+    out.themePalette = buildSmartThemePalette(out.currentThemeSlug, {});
   }
 
   if (savedText) {
