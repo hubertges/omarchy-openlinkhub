@@ -110,9 +110,8 @@ Panel {
 
   function saveSetting(key, val) {
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
-      var entry = {}
-      var cur = root.bar.shell.entryFor(root.moduleName) || {}
-      for (var k in cur) if (k !== "id") entry[k] = cur[k]
+      var entry = { id: root.moduleName }
+      for (var k in root.settings) if (k !== "id") entry[k] = root.settings[k]
       entry[key] = val
       root.bar.shell.updateEntryInline(root.moduleName, entry)
     }

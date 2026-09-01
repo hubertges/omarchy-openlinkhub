@@ -10,7 +10,7 @@
     "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "BarWidget.qml"
+    "barWidget": "Panel.qml"
   },
   "barWidget": {
     "displayName": "OpenLinkHub",
@@ -23,8 +23,5 @@
     ],
     "allowMultiple": false,
     "defaultSection": "right"
-  },
-  "omarchy": {
-    "clonedFrom": "omarchy.clock"
   }
 }
