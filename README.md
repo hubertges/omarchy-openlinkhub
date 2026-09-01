@@ -1,4 +1,4 @@
-# omarchy-openlinkhub 󰌢 󱐋
+# omarchy-openlinkhub
 
 > Omarchy bar widget and control panel for OpenLinkHub-enabled hardware, including Corsair iCUE Link devices, Commander Pro, PSU telemetry, RGB lighting, and fan profiles.
 
