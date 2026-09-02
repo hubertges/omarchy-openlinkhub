@@ -83,7 +83,7 @@ The script:
 
 ```bash
 mkdir -p ~/.config/omarchy/plugins/hubi.openlinkhub
-cp -r manifest.json BarWidget.qml Panel.qml OpenLinkHubModel.js bin ~/.config/omarchy/plugins/hubi.openlinkhub/
+cp -r manifest.json Panel.qml OpenLinkHubModel.js bin ~/.config/omarchy/plugins/hubi.openlinkhub/
 
 omarchy plugin validate ~/.config/omarchy/plugins/hubi.openlinkhub/
 omarchy bar put hubi.openlinkhub --section right

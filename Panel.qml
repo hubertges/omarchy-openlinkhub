@@ -96,9 +96,10 @@ Panel {
       "themeColorsMap": currentMap
     })
 
-    // Persist to state file
-    var jsonPayload = JSON.stringify(currentMap).replace(/'/g, "'\\''")
-    Quickshell.execDetached(["bash", "-c", "mkdir -p ~/.local/state/omarchy && echo '" + jsonPayload + "' > ~/.local/state/omarchy/openlinkhub-theme-colors.json"])
+    // Persist to state file safely (atomic replace, 0600 mode, no symlink following)
+    var jsonPayload = Model.escapeBashArg(JSON.stringify(currentMap))
+    var stateScript = "dir=\"$HOME/.local/state/omarchy\"; mkdir -p \"$dir\" 2>/dev/null; tmp=$(mktemp \"$dir/.theme-colors.tmp.XXXXXX\" 2>/dev/null); if [ -n \"$tmp\" ]; then chmod 600 \"$tmp\" 2>/dev/null; printf '%s\\n' " + jsonPayload + " > \"$tmp\"; if [ ! -L \"$dir/openlinkhub-theme-colors.json\" ]; then mv -f \"$tmp\" \"$dir/openlinkhub-theme-colors.json\"; else rm -f \"$tmp\"; fi; fi"
+    Quickshell.execDetached(["bash", "-c", stateScript])
 
     applyRgbColors(targetMode, newP1, newP2)
     root.statusMessage = Model.t("toastColors", root.lang) + root.activeThemeSlug + ": " + newP1 + " / " + newP2
@@ -188,11 +189,12 @@ Panel {
     var fanDevs = (root.rawData && root.rawData.fanControllableDevices && root.rawData.fanControllableDevices.length > 0)
       ? root.rawData.fanControllableDevices
       : ["62605BBB76606751B331EACF1C495170", "1005010593341009"]
+    var speedUrl = Model.escapeBashArg(root.safeApiUrl + "/api/speed")
 
     // 1. Device-level broadcast (-1)
     for (var i = 0; i < fanDevs.length; i++) {
-      var pGlobal = JSON.stringify({ deviceId: fanDevs[i], channelId: -1, profile: profileName })
-      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '" + pGlobal + "' " + root.safeApiUrl + "/api/speed >/dev/null 2>&1; "
+      var pGlobal = Model.jsonToBashData({ deviceId: fanDevs[i], channelId: -1, profile: profileName })
+      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pGlobal + " " + speedUrl + " >/dev/null 2>&1; "
     }
 
     // 2. Per-channel broadcast (mandatory for Commander Pro)
@@ -214,8 +216,8 @@ Panel {
 
     for (var j = 0; j < allFans.length; j++) {
       var f = allFans[j]
-      var pCh = JSON.stringify({ deviceId: f.devId, channelId: parseInt(f.channelId, 10), profile: profileName })
-      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '" + pCh + "' " + root.safeApiUrl + "/api/speed >/dev/null 2>&1; "
+      var pCh = Model.jsonToBashData({ deviceId: f.devId, channelId: parseInt(f.channelId, 10), profile: profileName })
+      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pCh + " " + speedUrl + " >/dev/null 2>&1; "
     }
 
     setFanProc.command = ["bash", "-c", script]
@@ -245,11 +247,16 @@ Panel {
       applyRgbColors(rgbMode, root.activePrimaryHex, root.activeSecondaryHex)
     } else {
       var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
-      var script = "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + rgbMode + "\"}' " + root.safeApiUrl + "/api/color >/dev/null 2>&1; "
+      var colorUrl = Model.escapeBashArg(root.safeApiUrl + "/api/color")
+      var globalUrl = Model.escapeBashArg(root.safeApiUrl + "/api/color/global")
+      var pCluster = Model.jsonToBashData({ deviceId: "cluster", channelId: 0, profile: rgbMode })
+      var script = "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pCluster + " " + colorUrl + " >/dev/null 2>&1; "
       for (var i = 1; i < targets.length; i++) {
-        script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[i] + "\",\"channelId\":-1,\"profile\":\"" + rgbMode + "\"}' " + root.safeApiUrl + "/api/color >/dev/null 2>&1; "
+        var pDev = Model.jsonToBashData({ deviceId: targets[i], channelId: -1, profile: rgbMode })
+        script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pDev + " " + colorUrl + " >/dev/null 2>&1; "
       }
-      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + rgbMode + "\"}' " + root.safeApiUrl + "/api/color/global >/dev/null 2>&1; "
+      var pGlobal = Model.jsonToBashData({ profile: rgbMode })
+      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pGlobal + " " + globalUrl + " >/dev/null 2>&1; "
       setRgbProc.command = ["bash", "-c", script]
       setRgbProc.running = true
     }
@@ -274,11 +281,14 @@ Panel {
     var p1 = Model.hexToRgb(primaryHex)
     var p2 = Model.hexToRgb(secondaryHex)
     var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
+    var changeUrl = Model.escapeBashArg(root.safeApiUrl + "/api/color/change")
+    var colorUrl = Model.escapeBashArg(root.safeApiUrl + "/api/color")
+    var globalUrl = Model.escapeBashArg(root.safeApiUrl + "/api/color/global")
     var script = ""
 
     // 1. Update color configuration for cluster and all devices via PUT /api/color/change
     for (var i = 0; i < targets.length; i++) {
-      var payload = JSON.stringify({
+      var payload = Model.jsonToBashData({
         deviceId: targets[i],
         profile: targetMode,
         startColor: p1,
@@ -288,23 +298,27 @@ Panel {
         alternateColors: false,
         rgbDirection: 0
       })
-      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X PUT -H 'Content-Type: application/json' -d '" + payload + "' " + root.safeApiUrl + "/api/color/change >/dev/null 2>&1; "
+      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X PUT -H 'Content-Type: application/json' -d " + payload + " " + changeUrl + " >/dev/null 2>&1; "
     }
 
     // 2. Fast bounce transition on cluster so animation engine tears down old buffer and reloads updated profile colors
     var bounceMode = (targetMode === "circle") ? "wave" : "circle"
-    script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + bounceMode + "\"}' " + root.safeApiUrl + "/api/color >/dev/null 2>&1; "
+    var pBounce = Model.jsonToBashData({ deviceId: "cluster", channelId: 0, profile: bounceMode })
+    script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pBounce + " " + colorUrl + " >/dev/null 2>&1; "
 
     // 3. Immediately switch back to target mode on cluster (channel 0)
-    script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"cluster\",\"channelId\":0,\"profile\":\"" + targetMode + "\"}' " + root.safeApiUrl + "/api/color >/dev/null 2>&1; "
+    var pTarget = Model.jsonToBashData({ deviceId: "cluster", channelId: 0, profile: targetMode })
+    script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pTarget + " " + colorUrl + " >/dev/null 2>&1; "
 
     // 4. Re-apply active mode to all individual RGB devices (channel -1)
     for (var j = 1; j < targets.length; j++) {
-      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"deviceId\":\"" + targets[j] + "\",\"channelId\":-1,\"profile\":\"" + targetMode + "\"}' " + root.safeApiUrl + "/api/color >/dev/null 2>&1; "
+      var pDev = Model.jsonToBashData({ deviceId: targets[j], channelId: -1, profile: targetMode })
+      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pDev + " " + colorUrl + " >/dev/null 2>&1; "
     }
 
     // 5. Global broadcast to reload active profile colors immediately
-    script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '{\"profile\":\"" + targetMode + "\"}' " + root.safeApiUrl + "/api/color/global >/dev/null 2>&1; "
+    var pGlobal = Model.jsonToBashData({ profile: targetMode })
+    script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + pGlobal + " " + globalUrl + " >/dev/null 2>&1; "
 
     setColorsProc.command = ["bash", "-c", script]
     setColorsProc.running = true
@@ -320,10 +334,11 @@ Panel {
     var b = Math.max(0, Math.min(100, Math.round(level)))
     if (root.rawData) root.rawData.brightness = b
     var targets = ["cluster", "62605BBB76606751B331EACF1C495170", "1005010593341009", "1D700317A81C7CAF9619A75F051C00F5", "i2c11"]
+    var brightUrl = Model.escapeBashArg(root.safeApiUrl + "/api/brightness/gradual")
     var script = ""
     for (var i = 0; i < targets.length; i++) {
-      var payload = JSON.stringify({ deviceId: targets[i], brightness: b })
-      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d '" + payload + "' " + root.safeApiUrl + "/api/brightness/gradual >/dev/null 2>&1; "
+      var payload = Model.jsonToBashData({ deviceId: targets[i], brightness: b })
+      script += "curl -s --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 3 -X POST -H 'Content-Type: application/json' -d " + payload + " " + brightUrl + " >/dev/null 2>&1; "
     }
     setBrightnessProc.command = ["bash", "-c", script]
     setBrightnessProc.running = true
@@ -344,7 +359,13 @@ Panel {
   // --- Polling Devices & Temperatures & Cluster RGB in Parallel ---
   Process {
     id: fetchProc
-    command: ["bash", "-c", "curl -fsS --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 2 " + root.safeApiUrl + "/api/devices/ && echo '===TEMPS===' && curl -fsS --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 2 " + root.safeApiUrl + "/api/temperatures && echo '===RGB===' && curl -fsS --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 2 " + root.safeApiUrl + "/api/color/cluster && echo '===THEME===' && cat ~/.local/state/omarchy/current/theme.name 2>/dev/null && echo '===THEME_COLORS===' && cat ~/.local/state/omarchy/current/theme/colors.toml 2>/dev/null && echo '===SAVED===' && cat ~/.local/state/omarchy/openlinkhub-theme-colors.json 2>/dev/null || true"]
+    command: [
+      "bash", "-c",
+      "curl -fsS --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 2 " + Model.escapeBashArg(root.safeApiUrl + "/api/devices/") +
+      " && echo '===TEMPS===' && curl -fsS --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 2 " + Model.escapeBashArg(root.safeApiUrl + "/api/temperatures") +
+      " && echo '===RGB===' && curl -fsS --proto =http,https --max-redirs 0 --max-filesize 5242880 --max-time 2 " + Model.escapeBashArg(root.safeApiUrl + "/api/color/cluster") +
+      " && echo '===THEME===' && cat ~/.local/state/omarchy/current/theme.name 2>/dev/null && echo '===THEME_COLORS===' && cat ~/.local/state/omarchy/current/theme/colors.toml 2>/dev/null && echo '===SAVED===' && cat ~/.local/state/omarchy/openlinkhub-theme-colors.json 2>/dev/null || true"
+    ]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

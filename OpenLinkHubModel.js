@@ -164,15 +164,21 @@ var COLOR_PALETTES = [
   { name: "Off",          hex: "#000000" }
 ];
 
+function escapeBashArg(str) {
+  return "'" + String(str !== undefined && str !== null ? str : "").replace(/'/g, "'\\''") + "'";
+}
+
+function jsonToBashData(obj) {
+  return escapeBashArg(JSON.stringify(obj));
+}
+
 function sanitizeApiUrl(url) {
   if (!url || typeof url !== "string") return "http://localhost:27003";
   var trimmed = url.trim();
-  if (/^https?:\/\/[a-zA-Z0-9_\-\.:]+$/i.test(trimmed)) {
-    return trimmed.replace(/\/+$/, "");
-  }
-  var match = trimmed.match(/^(https?:\/\/[a-zA-Z0-9_\-\.]+(:[0-9]{1,5})?)/i);
+  // Validates http/https schemes, hostname or IPv4 or bracketed IPv6, optional port, and optional path segments
+  var match = trimmed.match(/^https?:\/\/(\[[0-9a-fA-F:]+\]|[a-zA-Z0-9_\-\.]+)(:[0-9]{1,5})?(\/[a-zA-Z0-9_\-\.]+)*\/?$/i);
   if (match) {
-    return match[1];
+    return trimmed.replace(/\/+$/, "");
   }
   return "http://localhost:27003";
 }

@@ -24,8 +24,13 @@ REQUEST_TIMEOUT = 3                   # 3 seconds network timeout
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Prevent automatic redirects to arbitrary destinations."""
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:
+                pass
         raise urllib.error.HTTPError(
-            req.full_url, code, f"HTTP redirects disabled for security (blocked destination: {newurl})", headers, fp
+            req.full_url, code, f"HTTP redirects disabled for security (blocked destination: {newurl})", headers, None
         )
 
 _opener = urllib.request.build_opener(NoRedirectHandler)
@@ -54,14 +59,14 @@ def read_limited_response(resp, max_bytes=MAX_RESPONSE_BYTES):
         raise ValueError(f"API response size exceeded maximum allowed limit ({max_bytes} bytes).")
     return body.decode("utf-8")
 
-def update_shell_config(config_path, transform_fn):
+def update_shell_config(config_path, transform_fn, max_retries=5):
     """
     Safely reads, modifies via transform_fn(cfg), and atomically writes shell.json.
     Enforces:
       - Symlink rejection (no-follow)
       - Regular file checks
       - File size limits (MAX_CONFIG_SIZE)
-      - File locking (fcntl.flock LOCK_EX)
+      - File locking (fcntl.flock LOCK_EX with inode validation against rename races)
       - Atomic write via temporary file in same directory with private permissions (0o600)
     """
     config_dir = os.path.dirname(os.path.abspath(config_path))
@@ -71,60 +76,75 @@ def update_shell_config(config_path, transform_fn):
     if not os.path.lexists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    if os.path.islink(config_path):
-        raise ValueError(f"Security error: {config_path} is a symbolic link.")
-
-    st = os.lstat(config_path)
-    if not stat.S_ISREG(st.st_mode):
-        raise ValueError(f"Security error: {config_path} is not a regular file.")
-
-    if st.st_size > MAX_CONFIG_SIZE:
-        raise ValueError(f"Security error: {config_path} exceeds maximum allowed size ({MAX_CONFIG_SIZE} bytes).")
-
     open_flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
-    fd = os.open(config_path, open_flags)
-    tmp_path = None
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
 
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
+    for attempt in range(max_retries):
+        if os.path.islink(config_path):
+            raise ValueError(f"Security error: {config_path} is a symbolic link.")
+
+        st_path = os.lstat(config_path)
+        if not stat.S_ISREG(st_path.st_mode):
             raise ValueError(f"Security error: {config_path} is not a regular file.")
-        if st.st_size > MAX_CONFIG_SIZE:
-            raise ValueError(f"Security error: {config_path} exceeds maximum allowed size.")
+        if st_path.st_size > MAX_CONFIG_SIZE:
+            raise ValueError(f"Security error: {config_path} exceeds maximum allowed size ({MAX_CONFIG_SIZE} bytes).")
 
-        with os.fdopen(os.dup(fd), "r", encoding="utf-8") as f:
-            content = f.read(MAX_CONFIG_SIZE + 1)
-            if len(content) > MAX_CONFIG_SIZE:
-                raise ValueError(f"Security error: {config_path} exceeds maximum allowed size.")
-            cfg = json.loads(content) if content.strip() else {}
-
-        modified_cfg, should_write = transform_fn(cfg)
-        if not should_write:
-            return False
-
-        temp_fd, tmp_path = tempfile.mkstemp(dir=config_dir, prefix=".shell.json.tmp.", text=True)
-        os.chmod(tmp_path, 0o600)
-        with os.fdopen(temp_fd, "w", encoding="utf-8") as tf:
-            json.dump(modified_cfg, tf, indent=2)
-            tf.write("\n")
-            tf.flush()
-            os.fsync(tf.fileno())
-
-        os.replace(tmp_path, config_path)
+        fd = os.open(config_path, open_flags)
         tmp_path = None
-        return True
-    finally:
+        temp_fd = None
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except Exception:
-            pass
-        os.close(fd)
-        if tmp_path and os.path.exists(tmp_path):
+            fcntl.flock(fd, fcntl.LOCK_EX)
+
+            st_fd = os.fstat(fd)
+            if not stat.S_ISREG(st_fd.st_mode):
+                raise ValueError(f"Security error: {config_path} is not a regular file.")
+            if st_fd.st_size > MAX_CONFIG_SIZE:
+                raise ValueError(f"Security error: {config_path} exceeds maximum allowed size.")
+
+            # Verify the locked descriptor still matches the file on disk (guards against rename races)
+            st_cur = os.lstat(config_path)
+            if st_cur.st_ino != st_fd.st_ino or st_cur.st_dev != st_fd.st_dev:
+                # File was replaced while waiting for the lock; retry with the newly created file
+                continue
+
+            with os.fdopen(os.dup(fd), "r", encoding="utf-8") as f:
+                content = f.read(MAX_CONFIG_SIZE + 1)
+                if len(content) > MAX_CONFIG_SIZE:
+                    raise ValueError(f"Security error: {config_path} exceeds maximum allowed size.")
+                cfg = json.loads(content) if content.strip() else {}
+
+            modified_cfg, should_write = transform_fn(cfg)
+            if not should_write:
+                return False
+
+            temp_fd, tmp_path = tempfile.mkstemp(dir=config_dir, prefix=".shell.json.tmp.", text=True)
+            os.fchmod(temp_fd, 0o600)
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as tf:
+                temp_fd = None  # tf took ownership
+                json.dump(modified_cfg, tf, indent=2)
+                tf.write("\n")
+                tf.flush()
+                os.fsync(tf.fileno())
+
+            os.replace(tmp_path, config_path)
+            tmp_path = None
+            return True
+        finally:
+            if temp_fd is not None:
+                try:
+                    os.close(temp_fd)
+                except Exception:
+                    pass
             try:
-                os.remove(tmp_path)
+                fcntl.flock(fd, fcntl.LOCK_UN)
             except Exception:
                 pass
+            os.close(fd)
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+    raise RuntimeError(f"Could not safely acquire lock on {config_path} after {max_retries} attempts.")
 
 def api_get(endpoint, base_url=DEFAULT_API_URL):
     try:
@@ -134,6 +154,11 @@ def api_get(endpoint, base_url=DEFAULT_API_URL):
             text = read_limited_response(resp)
             return json.loads(text)
     except Exception as e:
+        if hasattr(e, "close"):
+            try:
+                e.close()
+            except Exception:
+                pass
         print(f"Error connecting to OpenLinkHub at {base_url}: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -151,6 +176,11 @@ def api_post(endpoint, payload, base_url=DEFAULT_API_URL, method="POST"):
             text = read_limited_response(resp)
             return json.loads(text)
     except Exception as e:
+        if hasattr(e, "close"):
+            try:
+                e.close()
+            except Exception:
+                pass
         print(f"Error sending request to {base_url}: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -298,12 +328,15 @@ def hex_to_rgb(hex_str):
     if len(clean) == 3:
         clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2]
     if len(clean) >= 6:
-        return {
-            "red": int(clean[0:2], 16),
-            "green": int(clean[2:4], 16),
-            "blue": int(clean[4:6], 16),
-            "temperature": 0
-        }
+        try:
+            return {
+                "red": int(clean[0:2], 16),
+                "green": int(clean[2:4], 16),
+                "blue": int(clean[4:6], 16),
+                "temperature": 0
+            }
+        except ValueError:
+            pass
     return {"red": 0, "green": 255, "blue": 255, "temperature": 0}
 
 def cmd_status(args):
@@ -355,15 +388,25 @@ def cmd_query(args):
     
     mapping = {
         "liquid_temp": f"{hw['liquid_temp']} °C" if hw['liquid_temp'] is not None else "--",
+        "liquid": f"{hw['liquid_temp']} °C" if hw['liquid_temp'] is not None else "--",
         "pump_rpm": f"{hw['pump_rpm']} RPM" if hw['pump_rpm'] is not None else "--",
+        "pump": f"{hw['pump_rpm']} RPM" if hw['pump_rpm'] is not None else "--",
         "psu_power": f"{hw['psu_watts']} W" if hw['psu_watts'] is not None else "--",
+        "psu": f"{hw['psu_watts']} W" if hw['psu_watts'] is not None else "--",
         "cpu_temp": f"{hw['cpu_temp']} °C" if hw['cpu_temp'] is not None else "--",
+        "cpu": f"{hw['cpu_temp']} °C" if hw['cpu_temp'] is not None else "--",
         "gpu_temp": f"{hw['gpu_temp']} °C" if hw['gpu_temp'] is not None else "--",
+        "gpu": f"{hw['gpu_temp']} °C" if hw['gpu_temp'] is not None else "--",
         "ram_temp": f"{hw['ram_temp']} °C" if hw['ram_temp'] is not None else "--",
+        "ram": f"{hw['ram_temp']} °C" if hw['ram_temp'] is not None else "--",
         "fan_rpm": f"{hw['max_fan_rpm']} RPM" if hw['max_fan_rpm'] is not None else "--",
+        "fan": f"{hw['max_fan_rpm']} RPM" if hw['max_fan_rpm'] is not None else "--",
         "psu_vrm_temp": f"{hw['psu_vrm_temp']} °C" if hw['psu_vrm_temp'] is not None else "--",
+        "vrm": f"{hw['psu_vrm_temp']} °C" if hw['psu_vrm_temp'] is not None else "--",
         "active_fan": hw['active_fan_profile'],
-        "active_rgb": hw['active_rgb_mode']
+        "fan_profile": hw['active_fan_profile'],
+        "active_rgb": hw['active_rgb_mode'],
+        "rgb_mode": hw['active_rgb_mode']
     }
     
     if m in mapping:
@@ -377,7 +420,7 @@ def cmd_fan(args):
     try:
         t_data = api_get("/api/temperatures", args.api_url)
         if t_data and isinstance(t_data.get("data"), dict):
-            avail_profiles = [k for k, v in t_data["data"].items() if not v.get("Hidden")]
+            avail_profiles = [k for k, v in t_data["data"].items() if isinstance(v, dict) and not v.get("Hidden")]
     except Exception:
         pass
 
@@ -478,20 +521,37 @@ def cmd_bar_metric(args):
         sys.exit(1)
 
     def _transform(cfg):
+        if not isinstance(cfg, dict):
+            cfg = {}
+        bar = cfg.get("bar")
+        if not isinstance(bar, dict):
+            bar = {}
+            cfg["bar"] = bar
+        layout = bar.get("layout")
+        if not isinstance(layout, dict):
+            layout = {"left": [], "center": [], "right": []}
+            bar["layout"] = layout
+
         found = False
         sections = ["right", "center", "left"]
         for s in sections:
-            for item in cfg.get("bar", {}).get("layout", {}).get(s, []):
-                if isinstance(item, dict) and item.get("id") == "hubi.openlinkhub":
-                    item["displayMetric"] = metric
-                    found = True
-                    break
+            sec_items = layout.get(s)
+            if isinstance(sec_items, list):
+                for item in sec_items:
+                    if isinstance(item, dict) and item.get("id") in ("hubi.openlinkhub", "omarchy.openlinkhub"):
+                        item["displayMetric"] = metric
+                        found = True
+                        break
             if found:
                 break
 
         if not found:
+            right_sec = layout.get("right")
+            if not isinstance(right_sec, list):
+                right_sec = []
+                layout["right"] = right_sec
             print("Warning: hubi.openlinkhub was not found in shell.json, creating entry...")
-            cfg.setdefault("bar", {}).setdefault("layout", {}).setdefault("right", []).append({
+            right_sec.append({
                 "id": "hubi.openlinkhub",
                 "displayMetric": metric
             })
@@ -514,8 +574,8 @@ def main():
     p_status.add_argument("--json", action="store_true", help="Output raw JSON")
     p_status.set_defaults(func=cmd_status)
     
-    # query
-    p_query = subparsers.add_parser("query", help="Query a specific metric")
+    # query (with 'get' alias)
+    p_query = subparsers.add_parser("query", aliases=["get"], help="Query a specific metric")
     p_query.add_argument("metric", help="Metric to query (liquid_temp, psu_power, cpu_temp, gpu_temp, ram_temp, pump_rpm, fan_rpm, psu_vrm_temp, active_fan, active_rgb)")
     p_query.set_defaults(func=cmd_query)
     
@@ -541,8 +601,8 @@ def main():
     p_bright.add_argument("level", help="Brightness level (0-100)")
     p_bright.set_defaults(func=cmd_brightness)
     
-    # bar-metric
-    p_bar = subparsers.add_parser("bar-metric", help="Set default statistic shown on Omarchy bar")
+    # bar-metric (with 'metric' alias)
+    p_bar = subparsers.add_parser("bar-metric", aliases=["metric"], help="Set default statistic shown on Omarchy bar")
     p_bar.add_argument("metric", help="Metric key or sensor key to display on the bar")
     p_bar.set_defaults(func=cmd_bar_metric)
     
